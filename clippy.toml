@@ -1,0 +1,2 @@
+# Acronyms that are allowed unescaped in doc comments (extends clippy defaults).
+doc-valid-idents = ["PiP", ".."]

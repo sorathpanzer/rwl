@@ -1,0 +1,126 @@
+[package]
+name = "rwl"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+description = "A dynamic Wayland window manager, written in Rust using Smithay"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/sorathpanzer/rwl"
+
+[features]
+default = ["tile", "monocle", "scratchpad", "col", "scroll", "dwindle", "bstack", "centeredmaster", "bar", "ipc", "winit", "rounded-corners", "gaps", "warp", "fade", "tag-transition", "pertag-layouts", "startup-cmds", "auto-back-empty-tag", "overview", "hooks", "pip", "mod-tap", "lock"]
+tile = []
+lock = ["dep:pam", "dep:zeroize"]
+monocle = []
+ipc = []
+overview = []
+hooks = []
+pip = []
+mod-tap = []
+scratchpad = []
+col = []
+scroll = []
+dwindle = []
+bstack = []
+centeredmaster = []
+fade = []
+tag-transition = []
+winit = ["smithay/backend_winit"]
+rounded-corners = []
+gaps = []
+warp = []
+pertag-layouts = []
+startup-cmds = []
+auto-back-empty-tag = []
+bar = [
+    "dep:azoth-render",
+    "dep:wayland-client",
+    "dep:wayland-backend",
+    "dep:wayland-protocols",
+    "dep:wayland-protocols-wlr",
+    "dep:wayland-scanner",
+    "dep:bytemuck",
+    "dep:signal-hook",
+]
+
+[lints.rust]
+unsafe_code = "deny"
+unused_must_use = "forbid"
+
+missing_docs = "warn"
+missing_debug_implementations = "warn"
+unused_lifetimes = "warn"
+trivial_casts = "warn"
+trivial_numeric_casts = "warn"
+
+[lints.clippy]
+enum_glob_use = "forbid"
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+panic = "forbid"
+unwrap_used = "forbid"
+expect_used = "forbid"
+implicit_clone = "forbid"
+redundant_clone = "forbid"
+mut_mut = "forbid"
+needless_pass_by_value = "warn"
+
+fallible_impl_from = "deny"
+dbg_macro = "deny"
+todo = "warn"
+unimplemented = "warn"
+clone_on_ref_ptr = "warn"
+large_stack_arrays = "warn"
+large_types_passed_by_value = "warn"
+semicolon_if_nothing_returned = "warn"
+rc_buffer = "warn"
+
+[profile.release]
+debug = 0
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
+# rustflags = ["-C", "target-cpu=native"]  # needs profile-rustflags (unstable, Cargo >= 1.96)
+
+[profile.dev]
+debug = 1
+opt-level = 1
+lto = false
+codegen-units = 1
+strip = false
+
+[dependencies]
+# Bar feature: embedded azoth status bar
+azoth-render             = { path = "src/features/bar/azoth-render", optional = true }
+wayland-client           = { version = "0.31", optional = true }
+wayland-backend          = { version = "0.3",  optional = true }
+wayland-protocols        = { version = "0.32", features = ["client", "unstable"], optional = true }
+wayland-protocols-wlr    = { version = "0.3",  features = ["client"], optional = true }
+wayland-scanner          = { version = "0.31", optional = true }
+bytemuck                 = { version = "1",    optional = true }
+signal-hook              = { version = "0.4",  optional = true }
+rustix                   = { version = "1",    features = ["fs", "event", "pipe"] }
+# Native screen locker (`lock` feature)
+pam                      = { version = "0.7", optional = true }
+zeroize                  = { version = "1",   optional = true }
+
+smithay = { git = "https://github.com/Smithay/smithay", rev = "85f83ab61711e725aa1f3481df4f4dc5370e925b", default-features = false, features = [
+    "desktop",
+    "wayland_frontend",
+    "backend_libinput",
+    "backend_udev",
+    "backend_drm",
+    "backend_egl",
+    "backend_gbm",
+    "backend_session_libseat",
+
+    "renderer_gl",
+] }
+mlua = { version = "0.10", features = ["lua54", "vendored"] }
+libc = "0.2"
+xcursor = "0.3"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
