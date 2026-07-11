@@ -76,7 +76,46 @@
           map (p: "-C link-arg=-Wl,-rpath,${p}/lib") libs
         );
 
+        # Runtime libraries that are dlopen'd (EGL/GBM/wayland/…) rather than
+        # linked directly, so they must live on the wrapped binary's library path.
+        rwl = pkgs.rustPlatform.buildRustPackage {
+          pname = "rwl";
+          version = "0.1.0";
+          src = self;
+
+          cargoLock = {
+            lockFile = ./Cargo.lock;
+            outputHashes = {
+              "smithay-0.7.0" = "sha256-hclOFFKWY2hjVEQrE/whFuppf72JuwNoV2UwBk/pAh4=";
+            };
+          };
+
+          nativeBuildInputs = nativeBuildInputs ++ [ pkgs.makeWrapper ];
+          buildInputs = libs ++ devLibs;
+
+          PKG_CONFIG_PATH = pcPath;
+
+          # Make dlopen'd runtime deps resolvable from the installed binary.
+          postInstall = ''
+            wrapProgram $out/bin/rwl \
+              --prefix LD_LIBRARY_PATH : "${ldPath}"
+          '';
+
+          doCheck = false;
+
+          meta = with pkgs.lib; {
+            description = "A dynamic Wayland window manager, written in Rust using Smithay";
+            homepage = "https://github.com/sorathpanzer/rwl";
+            license = licenses.gpl3Plus;
+            platforms = platforms.linux;
+            mainProgram = "rwl";
+          };
+        };
+
       in {
+        packages.default = rwl;
+        packages.rwl = rwl;
+
         devShells.default = pkgs.mkShell {
           name = "rwl-rust-dev";
           buildInputs = libs ++ devLibs;
