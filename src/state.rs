@@ -214,9 +214,13 @@ pub struct Rwl {
     pub grabbed_window: Option<Window>,
     pub grab_start: Option<Point<f64, Logical>>,
     pub grab_geom: Option<Rectangle<i32, Logical>>,
-    /// Monitor `mfact` at the start of a tiled-window resize grab (tile layout).
-    /// `None` when no grab is active or the grab is on a floating window.
+    /// Monitor `mfact` at the start of a tiled-window resize grab (layouts whose
+    /// resize adjusts the master/stack split).  `None` when no grab is active or
+    /// the grab is on a floating window.
     pub grab_mfact: Option<f64>,
+    /// The grabbed window's `cfact` at the start of a tiled-window resize grab.
+    /// `None` when no grab is active or the grab is on a floating window.
+    pub grab_cfact: Option<f64>,
     /// Index of the grabbed window's column at the start of a col-layout resize.
     #[cfg(feature = "col")]
     pub grab_col_idx: Option<usize>,
@@ -515,6 +519,7 @@ impl Rwl {
             grab_start: None,
             grab_geom: None,
             grab_mfact: None,
+            grab_cfact: None,
             #[cfg(feature = "col")]
             grab_col_idx: None,
             #[cfg(feature = "col")]
@@ -1261,7 +1266,13 @@ impl Rwl {
             }
         }
 
-        let geoms = layout::arrange(&self.monitors[mon_idx], tiled.len());
+        // Per-window size factors in tiling order; layouts that stack windows
+        // in a shared column/row weight each window's span by its factor.
+        let cfacts: Vec<f64> = tiled
+            .iter()
+            .map(|&idx| with_state(&self.windows[idx], |s| s.cfact).unwrap_or(1.0))
+            .collect();
+        let geoms = layout::arrange(&self.monitors[mon_idx], &cfacts);
 
         #[cfg(feature = "monocle")]
         let is_monocle_layout =

@@ -23,7 +23,8 @@ use crate::monitor::Monitor;
     clippy::cast_sign_loss,
     clippy::cast_precision_loss,
 )]
-pub fn arrange(monitor: &Monitor, n: usize) -> Vec<Rectangle<i32, Logical>> {
+pub fn arrange(monitor: &Monitor, cfacts: &[f64]) -> Vec<Rectangle<i32, Logical>> {
+    let n = cfacts.len();
     let cfg = crate::config::get();
     // No borders / gaps for a lone tiled window.
     #[cfg(feature = "gaps")]
@@ -48,28 +49,27 @@ pub fn arrange(monitor: &Monitor, n: usize) -> Vec<Rectangle<i32, Logical>> {
     let rcount = scount.div_ceil(2);      // right column gets the extra (ceil)
     let lcount = scount / 2;              // left column (floor)
 
-    // Vertical distribution within a column: equal heights, with rounding
-    // pixels accumulating at the last window (mirrors `tile`), separated by
-    // `gp` inner gaps and inset by the border width `bw`.
-    let column = |count: usize, col_x: i32, col_w: i32| -> Vec<Rectangle<i32, Logical>> {
+    // Vertical distribution within a column: heights proportional to each
+    // window's `cfact`, with rounding pixels accumulating at the last window
+    // (mirrors `tile`), separated by `gp` inner gaps and inset by the border
+    // width `bw`.  `cf` holds the height factors for this column's windows.
+    let column = |cf: &[f64], col_x: i32, col_w: i32| -> Vec<Rectangle<i32, Logical>> {
+        let count = cf.len();
         if count == 0 {
             return Vec::new();
         }
         let n_gaps = (count as i32 - 1) * gp;
         let win_h_total = area_h - n_gaps;
-        (0..count)
-            .scan((0i32, 0i32), |(y_offset, h_used), i| {
-                let remaining = (count - i) as i32;
-                let win_h = (win_h_total - *h_used) / remaining;
-                let rect = Rectangle::new(
-                    (col_x + bw, area_y + *y_offset + bw).into(),
-                    ((col_w - 2 * bw).max(1), (win_h - 2 * bw).max(1)).into(),
-                );
-                *h_used += win_h;
-                *y_offset += win_h + if i + 1 < count { gp } else { 0 };
-                Some(rect)
-            })
-            .collect()
+        let mut out = Vec::with_capacity(count);
+        let mut y_offset = 0i32;
+        for (i, win_h) in super::weighted_spans(win_h_total, cf).into_iter().enumerate() {
+            out.push(Rectangle::new(
+                (col_x + bw, area_y + y_offset + bw).into(),
+                ((col_w - 2 * bw).max(1), (win_h - 2 * bw).max(1)).into(),
+            ));
+            y_offset += win_h + if i + 1 < count { gp } else { 0 };
+        }
+        out
     };
 
     // Horizontal geometry of the master / left / right columns.
@@ -106,9 +106,16 @@ pub fn arrange(monitor: &Monitor, n: usize) -> Vec<Rectangle<i32, Logical>> {
         (0, 0, area_x, lw, area_x + lw + gp, rw)
     };
 
-    let master = column(mcount, master_x, master_w);
-    let right = column(rcount, right_x, right_w);
-    let left = column(lcount, left_x, left_w);
+    // Gather each column's height factors from `cfacts`, matching the fill order
+    // used when reassembling below: master windows are 0..mcount; stack windows
+    // alternate right, left, right, … starting at index mcount.
+    let master_cf = &cfacts[..mcount];
+    let right_cf: Vec<f64> = (0..rcount).map(|k| cfacts[mcount + 2 * k]).collect();
+    let left_cf: Vec<f64> = (0..lcount).map(|k| cfacts[mcount + 2 * k + 1]).collect();
+
+    let master = column(master_cf, master_x, master_w);
+    let right = column(&right_cf, right_x, right_w);
+    let left = column(&left_cf, left_x, left_w);
 
     // Reassemble in tiling order: master windows first, then stack windows
     // alternating right, left, right, … to match dwl's fill order. Every index

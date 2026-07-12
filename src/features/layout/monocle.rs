@@ -12,7 +12,9 @@ use crate::monitor::Monitor;
 /// Overlay all `n` windows on top of each other, each filling the work area.
 #[must_use]
 #[allow(clippy::cast_possible_wrap)]
-pub fn arrange(monitor: &Monitor, n: usize) -> Vec<Rectangle<i32, Logical>> {
+pub fn arrange(monitor: &Monitor, cfacts: &[f64]) -> Vec<Rectangle<i32, Logical>> {
+    // Every window fills the work area, so per-window size factors don't apply.
+    let n = cfacts.len();
     let raw = monitor.w;
     let geom = Rectangle::new(
         (raw.loc.x, raw.loc.y).into(),

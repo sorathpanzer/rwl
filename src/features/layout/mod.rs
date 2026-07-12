@@ -28,30 +28,33 @@ use crate::monitor::Monitor;
 
 /// Compute window geometries for all tiled windows on `monitor`.
 ///
-/// `windows` is the number of windows to tile.  The returned `Vec` has the
-/// same length; each entry is the geometry to apply to the corresponding window
-/// (in tiling order).
+/// `cfacts` holds one per-window size factor per tiled window, in tiling order
+/// (see [`crate::window::WindowState::cfact`]); its length is the number of
+/// windows to tile.  The returned `Vec` has the same length; each entry is the
+/// geometry to apply to the corresponding window (in tiling order).  Layouts
+/// that stack windows in a shared column/row weight each window's span by its
+/// factor; single-window-per-column layouts ignore the values.
 #[must_use]
-pub fn arrange(monitor: &Monitor, windows: usize) -> Vec<Rectangle<i32, Logical>> {
-    if windows == 0 {
+pub fn arrange(monitor: &Monitor, cfacts: &[f64]) -> Vec<Rectangle<i32, Logical>> {
+    if cfacts.is_empty() {
         return Vec::new();
     }
 
     match monitor.layout_kind() {
         #[cfg(feature = "tile")]
-        LayoutKind::Tile    => tile::arrange(monitor, windows),
+        LayoutKind::Tile    => tile::arrange(monitor, cfacts),
         #[cfg(feature = "monocle")]
-        LayoutKind::Monocle => monocle::arrange(monitor, windows),
+        LayoutKind::Monocle => monocle::arrange(monitor, cfacts),
         #[cfg(feature = "col")]
-        LayoutKind::Col     => col::arrange(monitor, windows),
+        LayoutKind::Col     => col::arrange(monitor, cfacts),
         #[cfg(feature = "scroll")]
-        LayoutKind::Scroll  => scroll::arrange(monitor, windows),
+        LayoutKind::Scroll  => scroll::arrange(monitor, cfacts),
         #[cfg(feature = "dwindle")]
-        LayoutKind::Dwindle => dwindle::arrange(monitor, windows),
+        LayoutKind::Dwindle => dwindle::arrange(monitor, cfacts),
         #[cfg(feature = "bstack")]
-        LayoutKind::Bstack  => bstack::arrange(monitor, windows),
+        LayoutKind::Bstack  => bstack::arrange(monitor, cfacts),
         #[cfg(feature = "centeredmaster")]
-        LayoutKind::CenteredMaster => centeredmaster::arrange(monitor, windows),
+        LayoutKind::CenteredMaster => centeredmaster::arrange(monitor, cfacts),
         #[cfg(not(any(
             feature = "tile",
             feature = "monocle",
@@ -61,8 +64,36 @@ pub fn arrange(monitor: &Monitor, windows: usize) -> Vec<Rectangle<i32, Logical>
             feature = "bstack",
             feature = "centeredmaster",
         )))]
-        LayoutKind::Fallback => fallback_arrange(monitor, windows),
+        LayoutKind::Fallback => fallback_arrange(monitor, cfacts),
     }
+}
+
+/// Split `total` pixels among `weights`, giving each entry a share proportional
+/// to its weight and accumulating the rounding remainder in the last entry so
+/// the spans always sum to exactly `total`.  A non-positive remaining weight
+/// (e.g. all-zero factors) falls back to equal division of what is left.
+///
+/// Used by the layouts that stack several windows in one column/row (tile,
+/// bstack, centeredmaster) to apply per-window `cfact` factors.
+#[cfg(any(feature = "tile", feature = "bstack", feature = "centeredmaster"))]
+#[must_use]
+#[allow(clippy::cast_possible_truncation)]
+pub fn weighted_spans(total: i32, weights: &[f64]) -> Vec<i32> {
+    let n = weights.len();
+    let mut spans = Vec::with_capacity(n);
+    let mut used = 0i32;
+    for i in 0..n {
+        let remaining: f64 = weights[i..].iter().map(|w| w.max(0.0)).sum();
+        let span = if remaining > 0.0 {
+            (f64::from(total - used) * (weights[i].max(0.0) / remaining)).round() as i32
+        } else {
+            #[allow(clippy::cast_possible_wrap)]
+            { (total - used) / (n - i) as i32 }
+        };
+        spans.push(span);
+        used += span;
+    }
+    spans
 }
 
 /// Built-in arrangement used when no layout feature is compiled in: every
@@ -76,6 +107,6 @@ pub fn arrange(monitor: &Monitor, windows: usize) -> Vec<Rectangle<i32, Logical>
     feature = "bstack",
     feature = "centeredmaster",
 )))]
-fn fallback_arrange(monitor: &Monitor, windows: usize) -> Vec<Rectangle<i32, Logical>> {
-    vec![monitor.w; windows]
+fn fallback_arrange(monitor: &Monitor, cfacts: &[f64]) -> Vec<Rectangle<i32, Logical>> {
+    vec![monitor.w; cfacts.len()]
 }

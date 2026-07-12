@@ -15,7 +15,10 @@ use crate::monitor::Monitor;
     clippy::cast_possible_wrap,
     clippy::cast_sign_loss
 )]
-pub fn arrange(monitor: &Monitor, n: usize) -> Vec<Rectangle<i32, Logical>> {
+pub fn arrange(monitor: &Monitor, cfacts: &[f64]) -> Vec<Rectangle<i32, Logical>> {
+    // Column widths come from `monitor.col_facts`; each column is one full-height
+    // window, so per-window height factors don't apply here.
+    let n = cfacts.len();
     if n == 0 {
         return Vec::new();
     }

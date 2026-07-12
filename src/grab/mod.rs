@@ -71,22 +71,14 @@ pub fn start_resize(state: &mut Rwl, window: Window, _edges: ResizeEdge) {
     if window_is_floating(&window) {
         // Floating window: keep it floating, resize directly.
         state.grab_mfact = None;
+        state.grab_cfact = None;
         #[cfg(feature = "col")]
         { state.grab_col_idx = None; state.grab_col_facts = None; }
     } else {
-        #[cfg(any(feature = "tile", feature = "col"))]
-        use crate::config::LayoutKind;
         let mon_idx = with_state(&window, |s| s.mon_idx).unwrap_or(0);
         match state.monitors.get(mon_idx).map(super::monitor::Monitor::layout_kind) {
-            #[cfg(feature = "tile")]
-            Some(LayoutKind::Tile) => {
-                // Tile: record mfact so handle_resize can compute a delta.
-                state.grab_mfact = state.monitors.get(mon_idx).map(|m| m.mfact);
-                #[cfg(feature = "col")]
-                { state.grab_col_idx = None; state.grab_col_facts = None; }
-            }
             #[cfg(feature = "col")]
-            Some(LayoutKind::Col) => {
+            Some(crate::config::LayoutKind::Col) => {
                 // Col: record the column index and a snapshot of col_facts.
                 state.grab_mfact = None;
                 let col_idx = col_window_idx(state, &window, mon_idx);
@@ -115,12 +107,17 @@ pub fn start_resize(state: &mut Rwl, window: Window, _edges: ResizeEdge) {
                     Vec::new()
                 });
             }
+            // All other tiled layouts resize via the master/stack split (mfact)
+            // and/or the grabbed window's per-window size factor (cfact).
             _ => {
-                state.grab_mfact = None;
+                state.grab_mfact = state.monitors.get(mon_idx).map(|m| m.mfact);
                 #[cfg(feature = "col")]
                 { state.grab_col_idx = None; state.grab_col_facts = None; }
             }
         }
+        // Snapshot the grabbed window's size factor so drag deltas apply relative
+        // to a fixed base rather than compounding on every pointer motion.
+        state.grab_cfact = with_state(&window, |s| s.cfact);
     }
 
     state.grabbed_window = Some(window.clone());
@@ -149,7 +146,7 @@ pub fn handle_move(state: &mut Rwl, new_pointer_loc: Point<f64, Logical>) {
 }
 
 /// Update size of the grabbed window during a resize.
-#[allow(clippy::cast_possible_truncation)]
+#[allow(clippy::cast_possible_truncation, clippy::too_many_lines)]
 pub fn handle_resize(state: &mut Rwl, new_pointer_loc: Point<f64, Logical>) {
     let (Some(window), Some(start), Some(orig_geom)) = (
         state.grabbed_window.clone(),
@@ -173,64 +170,153 @@ pub fn handle_resize(state: &mut Rwl, new_pointer_loc: Point<f64, Logical>) {
             tl.send_pending_configure();
         }
     } else {
-        #[cfg(any(feature = "tile", feature = "col"))]
-        use crate::config::LayoutKind;
-        let mon_idx = with_state(&window, |s| s.mon_idx).unwrap_or(0);
-        let Some(mon) = state.monitors.get(mon_idx) else { return };
-        let kind = mon.layout_kind();
-        let area_w = f64::from(mon.w.size.w);
-        if area_w <= 0.0 {
-            return;
-        }
-        #[cfg(any(feature = "tile", feature = "col"))]
-        let dx = new_pointer_loc.x - start.x;
-
-        match kind {
-            #[cfg(feature = "tile")]
-            LayoutKind::Tile => {
-                // Adjust the master/stack split proportionally to the horizontal drag.
-                let base_mfact = state.grab_mfact.unwrap_or(mon.mfact);
-                let new_mfact = (base_mfact + dx / area_w).clamp(0.05, 0.95);
-                if let Some(m) = state.monitors.get_mut(mon_idx) {
-                    m.mfact = new_mfact;
-                }
-                state.arrange(mon_idx);
+        #[cfg(any(
+            feature = "tile",
+            feature = "col",
+            feature = "scroll",
+            feature = "dwindle",
+            feature = "bstack",
+            feature = "centeredmaster",
+        ))]
+        {
+            let mon_idx = with_state(&window, |s| s.mon_idx).unwrap_or(0);
+            if state.monitors.get(mon_idx).is_none() {
+                return;
             }
-            #[cfg(feature = "col")]
-            LayoutKind::Col => {
-                // Move the right boundary of the grabbed column: grow it and
-                // shrink its right neighbour by the same fractional amount.
-                let Some(col_idx) = state.grab_col_idx else { return };
-                let snap = match state.grab_col_facts.as_deref() {
-                    Some(s) if !s.is_empty() => s,
-                    _ => return,
-                };
-                let n = snap.len();
-                // Can only drag the boundary between col_idx and col_idx+1.
-                if col_idx + 1 >= n {
-                    return;
+            match state.monitors[mon_idx].layout_kind() {
+                #[cfg(feature = "tile")]
+                crate::config::LayoutKind::Tile => {
+                    // Horizontal drag → master/stack split; vertical drag → the
+                    // grabbed window's height factor within its column.
+                    let (base_mfact, area_w) = {
+                        let m = &state.monitors[mon_idx];
+                        (state.grab_mfact.unwrap_or(m.mfact), f64::from(m.w.size.w))
+                    };
+                    if area_w > 0.0 {
+                        let dx = new_pointer_loc.x - start.x;
+                        state.monitors[mon_idx].mfact = (base_mfact + dx / area_w).clamp(0.05, 0.95);
+                    }
+                    let dy = new_pointer_loc.y - start.y;
+                    apply_cfact(state, &window, orig_geom.size.h, dy);
+                    state.arrange(mon_idx);
                 }
-                let total = snap[col_idx] + snap[col_idx + 1];
-                // Clamp delta so neither column falls below 5% of screen width.
-                let min_frac = 0.05_f64.min(total / 2.0);
-                let delta = (dx / area_w)
-                    .clamp(min_frac - snap[col_idx], snap[col_idx + 1] - min_frac);
-                let new_left = snap[col_idx] + delta;
-                let new_right = total - new_left; // sum preserved exactly
-                let new_facts: Vec<f64> = snap.iter().copied().enumerate()
-                    .map(|(j, f)| if j == col_idx { new_left } else if j == col_idx + 1 { new_right } else { f })
-                    .collect();
-                if let Some(m) = state.monitors.get_mut(mon_idx) {
-                    m.col_facts = new_facts;
+                #[cfg(feature = "bstack")]
+                crate::config::LayoutKind::Bstack => {
+                    // Master/stack split runs top/bottom, so vertical drag moves
+                    // it; the stack tiles sideways, so horizontal drag → cfact.
+                    let (base_mfact, area_h) = {
+                        let m = &state.monitors[mon_idx];
+                        (state.grab_mfact.unwrap_or(m.mfact), f64::from(m.w.size.h))
+                    };
+                    if area_h > 0.0 {
+                        let dy = new_pointer_loc.y - start.y;
+                        state.monitors[mon_idx].mfact = (base_mfact + dy / area_h).clamp(0.05, 0.95);
+                    }
+                    let dx = new_pointer_loc.x - start.x;
+                    apply_cfact(state, &window, orig_geom.size.w, dx);
+                    state.arrange(mon_idx);
                 }
-                state.arrange(mon_idx);
+                #[cfg(feature = "centeredmaster")]
+                crate::config::LayoutKind::CenteredMaster => {
+                    // Horizontal drag → centre-master width; vertical → cfact.
+                    let (base_mfact, area_w) = {
+                        let m = &state.monitors[mon_idx];
+                        (state.grab_mfact.unwrap_or(m.mfact), f64::from(m.w.size.w))
+                    };
+                    if area_w > 0.0 {
+                        let dx = new_pointer_loc.x - start.x;
+                        state.monitors[mon_idx].mfact = (base_mfact + dx / area_w).clamp(0.05, 0.95);
+                    }
+                    let dy = new_pointer_loc.y - start.y;
+                    apply_cfact(state, &window, orig_geom.size.h, dy);
+                    state.arrange(mon_idx);
+                }
+                #[cfg(feature = "col")]
+                crate::config::LayoutKind::Col => {
+                    // Move the right boundary of the grabbed column: grow it and
+                    // shrink its right neighbour by the same fractional amount.
+                    let area_w = f64::from(state.monitors[mon_idx].w.size.w);
+                    if area_w <= 0.0 {
+                        return;
+                    }
+                    let dx = new_pointer_loc.x - start.x;
+                    let Some(col_idx) = state.grab_col_idx else { return };
+                    let snap = match state.grab_col_facts.as_deref() {
+                        Some(s) if !s.is_empty() => s,
+                        _ => return,
+                    };
+                    let n = snap.len();
+                    // Can only drag the boundary between col_idx and col_idx+1.
+                    if col_idx + 1 >= n {
+                        return;
+                    }
+                    let total = snap[col_idx] + snap[col_idx + 1];
+                    // Clamp delta so neither column falls below 5% of screen width.
+                    let min_frac = 0.05_f64.min(total / 2.0);
+                    let delta = (dx / area_w)
+                        .clamp(min_frac - snap[col_idx], snap[col_idx + 1] - min_frac);
+                    let new_left = snap[col_idx] + delta;
+                    let new_right = total - new_left; // sum preserved exactly
+                    let new_facts: Vec<f64> = snap.iter().copied().enumerate()
+                        .map(|(j, f)| if j == col_idx { new_left } else if j == col_idx + 1 { new_right } else { f })
+                        .collect();
+                    if let Some(m) = state.monitors.get_mut(mon_idx) {
+                        m.col_facts = new_facts;
+                    }
+                    state.arrange(mon_idx);
+                }
+                #[cfg(feature = "scroll")]
+                crate::config::LayoutKind::Scroll => {
+                    // One window per full-height column: horizontal drag sets the
+                    // shared column width (mfact).
+                    let (base_mfact, area_w) = {
+                        let m = &state.monitors[mon_idx];
+                        (state.grab_mfact.unwrap_or(m.mfact), f64::from(m.w.size.w))
+                    };
+                    if area_w > 0.0 {
+                        let dx = new_pointer_loc.x - start.x;
+                        state.monitors[mon_idx].mfact = (base_mfact + dx / area_w).clamp(0.05, 0.95);
+                        state.arrange(mon_idx);
+                    }
+                }
+                #[cfg(feature = "dwindle")]
+                crate::config::LayoutKind::Dwindle => {
+                    // Horizontal drag adjusts the master (first) split fraction.
+                    let (base_mfact, area_w) = {
+                        let m = &state.monitors[mon_idx];
+                        (state.grab_mfact.unwrap_or(m.mfact), f64::from(m.w.size.w))
+                    };
+                    if area_w > 0.0 {
+                        let dx = new_pointer_loc.x - start.x;
+                        state.monitors[mon_idx].mfact = (base_mfact + dx / area_w).clamp(0.05, 0.95);
+                        state.arrange(mon_idx);
+                    }
+                }
+                // Monocle (full-screen overlay) and the fallback layout have
+                // nothing resizable.
+                #[allow(unreachable_patterns)]
+                _ => {}
             }
-            // Catches Monocle / scrollable / fallback layouts (and is
-            // unreachable when only Tile/Col are compiled in).
-            #[allow(unreachable_patterns)]
-            _ => {} // ignore resize request
         }
     }
+}
+
+/// Apply a per-window size factor (`cfact`) from an interactive resize drag.
+///
+/// The grabbed window originally spanned `orig_len` px along the drag axis and
+/// the pointer has moved `delta` px along it.  Scaling the base factor by
+/// `(orig_len + delta) / orig_len` grows/shrinks the window roughly in step with
+/// the pointer while its column/row neighbours re-flow proportionally.  The
+/// result is clamped to `[0.25, 4.0]` (matching dwm's cfact range).
+#[cfg(any(feature = "tile", feature = "bstack", feature = "centeredmaster"))]
+fn apply_cfact(state: &Rwl, window: &Window, orig_len: i32, delta: f64) {
+    let orig = f64::from(orig_len);
+    if orig <= 0.0 {
+        return;
+    }
+    let base = state.grab_cfact.unwrap_or(1.0);
+    let new = (base * (orig + delta) / orig).clamp(0.25, 4.0);
+    crate::window::with_state_mut(window, |s| s.cfact = new);
 }
 
 /// End any active grab.
@@ -249,6 +335,7 @@ pub fn end_grab(state: &mut Rwl) {
     state.grab_start = None;
     state.grab_geom = None;
     state.grab_mfact = None;
+    state.grab_cfact = None;
     #[cfg(feature = "col")]
     { state.grab_col_idx = None; state.grab_col_facts = None; }
     state.grab_was_floating = false;

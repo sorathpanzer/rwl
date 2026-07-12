@@ -16,7 +16,9 @@ use crate::monitor::Monitor;
     clippy::cast_sign_loss,
     clippy::cast_precision_loss,
 )]
-pub fn arrange(monitor: &Monitor, n: usize) -> Vec<Rectangle<i32, Logical>> {
+pub fn arrange(monitor: &Monitor, cfacts: &[f64]) -> Vec<Rectangle<i32, Logical>> {
+    // Recursive geometric splits don't map onto a single per-window factor.
+    let n = cfacts.len();
     if n == 0 {
         return Vec::new();
     }

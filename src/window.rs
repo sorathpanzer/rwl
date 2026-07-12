@@ -54,6 +54,11 @@ pub struct WindowState {
     pub saved_loc: Option<Point<i32, Logical>>,
     /// Index into `Rwl::monitors` for the monitor this window is assigned to.
     pub mon_idx: usize,
+    /// Per-window size factor along the current layout's stacking axis (dwm's
+    /// `cfact`).  `1.0` is an equal share; interactive mouse resize in tiled
+    /// layouts grows/shrinks this window relative to its column/row neighbours.
+    /// Clamped to `[0.25, 4.0]`.
+    pub cfact: f64,
     /// Last title seen at commit time; used to detect changes and push updates
     /// to bars (dwlb, sombar, …) without waiting for an unrelated event.
     pub last_title: Option<String>,
@@ -142,6 +147,7 @@ impl WindowState {
             needs_centering: false,
             saved_loc: None,
             mon_idx: 0,
+            cfact: 1.0,
             last_title: None,
             last_appid: None,
             pending_geom: None,

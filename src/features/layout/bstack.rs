@@ -21,7 +21,8 @@ use crate::monitor::Monitor;
     clippy::cast_sign_loss,
     clippy::cast_precision_loss,
 )]
-pub fn arrange(monitor: &Monitor, n: usize) -> Vec<Rectangle<i32, Logical>> {
+pub fn arrange(monitor: &Monitor, cfacts: &[f64]) -> Vec<Rectangle<i32, Logical>> {
+    let n = cfacts.len();
     let cfg = crate::config::get();
     // No borders for a lone tiled window.
     #[cfg(feature = "gaps")]
@@ -73,32 +74,29 @@ pub fn arrange(monitor: &Monitor, n: usize) -> Vec<Rectangle<i32, Logical>> {
 
     let mut geoms = Vec::with_capacity(n);
 
-    // Place `count` windows in a row of height `row_h` starting at `row_y`.
-    // Columns are separated by `gp` inner gaps; rounding pixels accumulate at
-    // the last window rather than leaving a gap on the right.
-    let mut row = |count: usize, row_h: i32, row_y: i32| {
+    // Place the windows whose width factors are `cf` in a row of height `row_h`
+    // starting at `row_y`.  Column widths are proportional to each window's
+    // `cfact` (this layout stacks horizontally); columns are separated by `gp`
+    // inner gaps and rounding pixels accumulate at the last window.
+    let row = |cf: &[f64], row_h: i32, row_y: i32, geoms: &mut Vec<Rectangle<i32, Logical>>| {
+        let count = cf.len();
         if count == 0 {
             return;
         }
         let n_gaps = (count as i32 - 1) * gp;
         let win_w_total = area_w - n_gaps;
-        geoms.extend(
-            (0..count).scan((0i32, 0i32), |(x_offset, w_used), i| {
-                let remaining = (count - i) as i32;
-                let win_w = (win_w_total - *w_used) / remaining;
-                let rect = Rectangle::new(
-                    (area_x + *x_offset + bw, row_y + bw).into(),
-                    ((win_w - 2 * bw).max(1), (row_h - 2 * bw).max(1)).into(),
-                );
-                *w_used += win_w;
-                *x_offset += win_w + if i + 1 < count { gp } else { 0 };
-                Some(rect)
-            }),
-        );
+        let mut x_offset = 0i32;
+        for (i, win_w) in super::weighted_spans(win_w_total, cf).into_iter().enumerate() {
+            geoms.push(Rectangle::new(
+                (area_x + x_offset + bw, row_y + bw).into(),
+                ((win_w - 2 * bw).max(1), (row_h - 2 * bw).max(1)).into(),
+            ));
+            x_offset += win_w + if i + 1 < count { gp } else { 0 };
+        }
     };
 
-    row(in_master, master_h, area_y);
-    row(in_stack, stack_h, stack_y);
+    row(&cfacts[..in_master], master_h, area_y, &mut geoms);
+    row(&cfacts[in_master..], stack_h, stack_y, &mut geoms);
 
     geoms
 }
