@@ -51,9 +51,18 @@ pub fn update_cache(time: u32, signal_mask: u32, prev_cache: StatusCache, blocks
         .collect()
 }
 
-pub fn build_status(cache: &[String], delim: &str) -> String {
-    if delim.is_empty() {
-        return cache.concat();
+/// Build the joined status string and, for each block, the byte offset at which
+/// that block's text ends within the string (not including the trailing
+/// delimiter).  The bounds let the event loop map a pointer x-position back to
+/// the block under it.
+#[allow(clippy::cast_possible_truncation)]
+pub fn build_status_bounds(cache: &[String], delim: &str) -> (String, Vec<u32>) {
+    let mut status = String::new();
+    let mut bounds = Vec::with_capacity(cache.len());
+    for (i, part) in cache.iter().enumerate() {
+        if i > 0 { status.push_str(delim); }
+        status.push_str(part);
+        bounds.push(status.len() as u32);
     }
-    cache.join(delim)
+    (status, bounds)
 }

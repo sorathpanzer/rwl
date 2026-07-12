@@ -30,6 +30,10 @@ unsafe fn draw_text(
     bg_color: *const RustColor,
     max_x: u32,
     buf_height: u32,
+    // Top of the row band for background fills. Confines a line's background
+    // (and reverse-video highlight) to its own row so multi-line widgets don't
+    // overwrite earlier lines' highlights. 0 for single-line callers.
+    row_top: u32,
     padding: u32,
     font: *mut FcftFont,
     colors: *const RustTextColor,
@@ -116,7 +120,7 @@ unsafe fn draw_text(
             } else {
                 pixman_image_fill_boxes(
                     PIXMAN_OP_OVER, foreground, cur_fg, 1,
-                    &PixmanBox32 { x1: x_kern.cast_signed(), y1: 0, x2: nx.cast_signed(), y2: buf_height.cast_signed() },
+                    &PixmanBox32 { x1: x_kern.cast_signed(), y1: row_top.cast_signed(), x2: nx.cast_signed(), y2: buf_height.cast_signed() },
                 );
             }
             pixman_image_composite32(
@@ -132,7 +136,7 @@ unsafe fn draw_text(
         if draw_bg {
             pixman_image_fill_boxes(
                 PIXMAN_OP_OVER, background, cur_bg, 1,
-                &PixmanBox32 { x1: x_kern.cast_signed(), y1: 0, x2: nx.cast_signed(), y2: buf_height.cast_signed() },
+                &PixmanBox32 { x1: x_kern.cast_signed(), y1: row_top.cast_signed(), x2: nx.cast_signed(), y2: buf_height.cast_signed() },
             );
         }
 
@@ -146,17 +150,17 @@ unsafe fn draw_text(
     if draw_bg {
         pixman_image_fill_boxes(
             PIXMAN_OP_OVER, background, bg_color, 1,
-            &PixmanBox32 { x1: ix.cast_signed(), y1: 0, x2: (ix + padding).cast_signed(), y2: buf_height.cast_signed() },
+            &PixmanBox32 { x1: ix.cast_signed(), y1: row_top.cast_signed(), x2: (ix + padding).cast_signed(), y2: buf_height.cast_signed() },
         );
         pixman_image_fill_boxes(
             PIXMAN_OP_OVER, background, bg_color, 1,
-            &PixmanBox32 { x1: x.cast_signed(), y1: 0, x2: nx.cast_signed(), y2: buf_height.cast_signed() },
+            &PixmanBox32 { x1: x.cast_signed(), y1: row_top.cast_signed(), x2: nx.cast_signed(), y2: buf_height.cast_signed() },
         );
     }
     nx
 }
 
-unsafe fn text_width(
+pub(crate) unsafe fn text_width(
     text: *const c_char,
     max_width: u32,
     padding: u32,
@@ -166,8 +170,94 @@ unsafe fn text_width(
         text, 0, 0,
         ptr::null_mut(), ptr::null_mut(), ptr::null_mut(),
         ptr::null(), ptr::null(),
-        max_width, 0, padding, font, ptr::null(), 0,
+        max_width, 0, 0, padding, font, ptr::null(), 0,
     )
+}
+
+/// Render a bordered box filled with `bg_color`, a 1px `border_color` frame, and
+/// left-aligned lines of text drawn in `fg_color`.  Each line may carry a run of
+/// `RustTextColor` overrides (used for ANSI reverse-video).  Used for hover
+/// widgets.
+#[allow(clippy::too_many_arguments, clippy::similar_names, clippy::too_many_lines)]
+pub unsafe fn draw_lines(
+    pixels: *mut u32,
+    width: u32,
+    height: u32,
+    stride: u32,
+    font: *mut FcftFont,
+    padding: u32,
+    line_height: u32,
+    fg_color: *const RustColor,
+    bg_color: *const RustColor,
+    border_color: *const RustColor,
+    lines: *const *const c_char,
+    colors: *const *const RustTextColor,
+    colors_lens: *const u32,
+    n_lines: u32,
+) {
+    let w = width.cast_signed();
+    let h = height.cast_signed();
+
+    let final_img = pixman_image_create_bits(PIXMAN_A8R8G8B8, w, h, pixels, stride.cast_signed());
+    let fg        = pixman_image_create_bits(PIXMAN_A8R8G8B8, w, h, ptr::null_mut(), 0);
+    let mask      = pixman_image_create_bits(PIXMAN_A8,       w, h, ptr::null_mut(), 0);
+    let bg        = pixman_image_create_bits(PIXMAN_A8R8G8B8, w, h, ptr::null_mut(), 0);
+
+    if final_img.is_null() || fg.is_null() || mask.is_null() || bg.is_null() {
+        if !fg.is_null()        { pixman_image_unref(fg); }
+        if !mask.is_null()      { pixman_image_unref(mask); }
+        if !bg.is_null()        { pixman_image_unref(bg); }
+        if !final_img.is_null() { pixman_image_unref(final_img); }
+        return;
+    }
+
+    // Inner background (the border frame is stroked last, over any per-glyph
+    // background fills that draw_text paints across the full row height).
+    pixman_image_fill_boxes(PIXMAN_OP_SRC, bg, bg_color, 1,
+        &PixmanBox32 { x1: 0, y1: 0, x2: w, y2: h });
+
+    let ascent = (*font).ascent;
+    for i in 0..n_lines {
+        let line = *lines.add(i as usize);
+        // Row band for this line: background/highlight fills are confined here so
+        // a later line cannot paint over an earlier line's highlight cell.
+        let row_top = padding + i * line_height;
+        let row_bot = (row_top + line_height).min(height);
+        #[allow(clippy::cast_possible_wrap)]
+        let baseline = ascent + row_top.cast_signed();
+        if baseline < 0 { continue; }
+        // Pass bg_color so draw_bg is enabled: this lets reverse-video runs paint
+        // their highlight background via the per-glyph colour list.
+        draw_text(
+            line, padding, baseline.cast_unsigned(), fg, mask, bg,
+            fg_color, bg_color, width, row_bot, row_top, 0, font,
+            *colors.add(i as usize), *colors_lens.add(i as usize),
+        );
+    }
+
+    // Stroke the 1px border frame on top of the background layer.
+    if w >= 1 && h >= 1 && !border_color.is_null() {
+        let frame = [
+            PixmanBox32 { x1: 0,     y1: 0,     x2: w,     y2: 1 },   // top
+            PixmanBox32 { x1: 0,     y1: h - 1, x2: w,     y2: h },   // bottom
+            PixmanBox32 { x1: 0,     y1: 0,     x2: 1,     y2: h },   // left
+            PixmanBox32 { x1: w - 1, y1: 0,     x2: w,     y2: h },   // right
+        ];
+        for b in &frame {
+            pixman_image_fill_boxes(PIXMAN_OP_SRC, bg, border_color, 1, b);
+        }
+    }
+
+    pixman_image_composite32(PIXMAN_OP_OVER, bg, ptr::null_mut(), final_img,
+        0, 0, 0, 0, 0, 0, w, h);
+    pixman_image_set_alpha_map(fg, mask, 0, 0);
+    pixman_image_composite32(PIXMAN_OP_OVER, fg, mask, final_img,
+        0, 0, 0, 0, 0, 0, w, h);
+
+    pixman_image_unref(fg);
+    pixman_image_unref(mask);
+    pixman_image_unref(bg);
+    pixman_image_unref(final_img);
 }
 
 #[allow(clippy::too_many_arguments, clippy::too_many_lines, clippy::similar_names)]
@@ -270,14 +360,14 @@ pub unsafe fn draw_bar(
         x = draw_text(
             *tag_names.add(i as usize), x, y, fg, mask, bg,
             fg_col, bg_col,
-            width, height, textpadding, font, ptr::null(), 0,
+            width, height, 0, textpadding, font, ptr::null(), 0,
         );
     }
 
     if !layout.is_null() {
         x = draw_text(layout, x, y, fg, mask, bg,
             inactive_fg, inactive_bg,
-            width, height, textpadding, font, ptr::null(), 0);
+            width, height, 0, textpadding, font, ptr::null(), 0);
     }
 
     let st = if status_text.is_null() { EMPTY.as_ptr().cast::<c_char>() } else { status_text };
@@ -286,7 +376,7 @@ pub unsafe fn draw_bar(
         draw_text(
             status_text, width - status_w, y, fg, mask, bg,
             inactive_fg, inactive_bg,
-            width, height, textpadding, font,
+            width, height, 0, textpadding, font,
             status_colors, status_colors_l,
         );
     }
@@ -322,7 +412,7 @@ pub unsafe fn draw_bar(
     x = draw_text(
         title, x, y, fg, mask, bg,
         t_fg, t_bg,
-        width.saturating_sub(status_w), height, 0, font,
+        width.saturating_sub(status_w), height, 0, 0, font,
         ptr::null(), 0,
     );
 

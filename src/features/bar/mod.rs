@@ -26,6 +26,11 @@ pub struct BlockSettings {
     pub command:  String,
     pub interval: u32,
     pub signal:   u8,
+    /// Shell command run on click; `$BLOCK_BUTTON` holds the mouse button number.
+    pub command_click: String,
+    /// Shell command whose stdout is shown in a floating widget while the pointer
+    /// hovers the block (e.g. `cal` under a clock). Empty disables the widget.
+    pub hover_command: String,
 }
 
 #[derive(Clone, Debug)]
@@ -95,24 +100,32 @@ fn default_block_settings() -> Vec<BlockSettings> {
             command:  "df -h | rg /dev/dm-0 | awk '{print $5}'".into(),
             interval: 3600,
             signal:   0,
+            command_click: String::new(),
+            hover_command: String::new(),
         },
         BlockSettings {
             icon:     "💻".into(),
             command:  "free -h | awk '/^Mem/ { print $3 }' | sed s/i//g".into(),
             interval: 30,
             signal:   0,
+            command_click: String::new(),
+            hover_command: String::new(),
         },
         BlockSettings {
             icon:     String::new(),
             command:  "lister".into(),
             interval: 0,
             signal:   1,
+            command_click: String::new(),
+            hover_command: String::new(),
         },
         BlockSettings {
             icon:     "🕓".into(),
             command:  "nu -c 'date now | format date %H:%M'".into(),
             interval: 1,
             signal:   0,
+            command_click: String::new(),
+            hover_command: "cal --color=always".into(),
         },
     ]
 }
@@ -148,7 +161,7 @@ use rustix::io::Errno;
 
 use wayland_client::{
     protocol::{
-        wl_buffer, wl_compositor, wl_output, wl_registry, wl_shm, wl_shm_pool, wl_surface, wl_seat, wl_keyboard,
+        wl_buffer, wl_compositor, wl_output, wl_registry, wl_shm, wl_shm_pool, wl_surface, wl_seat, wl_keyboard, wl_pointer,
     },
     Connection, Dispatch, EventQueue, QueueHandle,
 };
@@ -181,6 +194,10 @@ struct Bar {
     title_override: Option<(String, std::time::Instant, Option<azoth_render::RustColor>)>,
     title_is_error: bool,
     status: Arc<CustomText>,
+    /// Cumulative pixel x-offset at which each block ends, relative to the start
+    /// of the status text.  Empty when block geometry is unknown (e.g. status set
+    /// via the socket/stdin paths rather than the blocks thread).
+    block_pix_ends: Vec<u32>,
 
     dwl_output: Option<dwl_ipc::zdwl_ipc_output_v2::ZdwlIpcOutputV2>,
     pending_ctags: u32,
@@ -222,6 +239,7 @@ impl Bar {
             mtags: 0, ctags: 0, urg: 0, sel: 0,
             layout: None, window_title: None, layout_idx: 0,
             title_override: None, title_is_error: false, status: Arc::new(CustomText::default()),
+            block_pix_ends: Vec::new(),
             dwl_output: None,
             pending_ctags: 0, pending_mtags: 0, pending_urg: 0,
             hidden: cfg.hidden, bottom: cfg.bottom, redraw: false, dead: false,
@@ -246,6 +264,35 @@ impl Bar {
 /// Tuple: (block list, delimiter, `reload_pending` flag).
 type SharedBlocks = Arc<Mutex<(Vec<config::Block>, String, bool)>>;
 
+/// Joined status string plus the byte offset at which each block ends, sent from
+/// the blocks thread to the event loop.
+type SharedStatus = Arc<Mutex<(String, Vec<u32>)>>;
+
+/// Click/hover behaviour for one status block.
+#[derive(Clone, Default)]
+struct BlockAction {
+    click: String,
+    hover_command: String,
+}
+
+/// Marker user-data for the hover widget's layer surface, so its configure
+/// events dispatch separately from the bars' layer surfaces (keyed by `usize`).
+struct WidgetTag;
+
+/// A floating hover widget: its own small layer surface anchored under the block,
+/// rendering the block's `hover_command` output.
+struct Widget {
+    surface:       wl_surface::WlSurface,
+    layer_surface: ZwlrLayerSurfaceV1,
+    /// Rendered command output, one entry per line.
+    lines:  Vec<String>,
+    width:  u32,
+    height: u32,
+    stride: u32,
+    bufsize: usize,
+    configured: bool,
+}
+
 struct State {
     cfg: Config,
     font: Font,
@@ -264,6 +311,20 @@ struct State {
 
     seat: Option<wl_seat::WlSeat>,
     keyboard: Option<wl_keyboard::WlKeyboard>,
+    pointer: Option<wl_pointer::WlPointer>,
+    /// Bar index the pointer is currently over, plus its last surface-local x.
+    pointer_focus: Option<usize>,
+    pointer_x: f64,
+
+    /// Per-block click command + hover command, indexed like the block list.
+    /// Kept on the event-loop side so clicks/hovers need no cross-thread lock.
+    block_actions: Vec<BlockAction>,
+
+    /// (bar index, block index) the pointer currently hovers, if any.  Tracked so
+    /// the hover widget is only rebuilt when the pointer crosses a block boundary.
+    hover_target: Option<(usize, usize)>,
+    /// The floating hover widget (a separate small layer surface), if shown.
+    widget: Option<Widget>,
 
     shared_blocks: SharedBlocks,
 
@@ -286,7 +347,10 @@ impl State {
             tags: vec![], layouts: vec![], bars: vec![],
             compositor: None, shm: None, layer_shell: None,
             output_manager: None, dwl_manager: None,
-            seat: None, keyboard: None,
+            seat: None, keyboard: None, pointer: None,
+            pointer_focus: None, pointer_x: 0.0,
+            block_actions: Vec::new(),
+            hover_target: None, widget: None,
             shared_blocks,
             wayland_socket,
             stdin_buf: String::new(), ready: false,
@@ -550,16 +614,26 @@ impl Dispatch<wl_seat::WlSeat, ()> for State {
     ) {
         if let wl_seat::Event::Capabilities { capabilities } = event {
             use wayland_client::protocol::wl_seat::Capability;
-            let has_keyboard = match capabilities {
-                wayland_client::WEnum::Value(caps) => caps.contains(Capability::Keyboard),
-                wayland_client::WEnum::Unknown(_) => false,
+            let caps = match capabilities {
+                wayland_client::WEnum::Value(caps) => caps,
+                wayland_client::WEnum::Unknown(_) => Capability::empty(),
             };
+            let has_keyboard = caps.contains(Capability::Keyboard);
             if has_keyboard && state.keyboard.is_none() {
                 state.keyboard = Some(seat.get_keyboard(qh, ()));
             } else if !has_keyboard
                 && let Some(kb) = state.keyboard.take()
             {
                 kb.release();
+            }
+
+            let has_pointer = caps.contains(Capability::Pointer);
+            if has_pointer && state.pointer.is_none() {
+                state.pointer = Some(seat.get_pointer(qh, ()));
+            } else if !has_pointer
+                && let Some(ptr) = state.pointer.take()
+            {
+                ptr.release();
             }
         }
     }
@@ -584,6 +658,293 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for State {
             }
         }
     }
+}
+
+// ── Pointer Dispatch (block hover + click) ────────────────────────────────────
+
+impl Dispatch<wl_pointer::WlPointer, ()> for State {
+    fn event(
+        state: &mut Self,
+        _pointer: &wl_pointer::WlPointer,
+        event: wl_pointer::Event,
+        _data: &(),
+        _conn: &Connection,
+        qh: &QueueHandle<Self>,
+    ) {
+        use wl_pointer::Event;
+        match event {
+            Event::Enter { surface, surface_x, .. } => {
+                if let Some(idx) = state.bars.iter().position(|b| b.surface.as_ref() == Some(&surface)) {
+                    state.pointer_focus = Some(idx);
+                    state.pointer_x = surface_x;
+                    state.update_hover(idx, qh);
+                }
+            }
+            Event::Leave { surface, .. } => {
+                if let Some(idx) = state.bars.iter().position(|b| b.surface.as_ref() == Some(&surface)) {
+                    if state.pointer_focus == Some(idx) { state.pointer_focus = None; }
+                    state.clear_hover();
+                }
+            }
+            Event::Motion { surface_x, .. } => {
+                if let Some(idx) = state.pointer_focus {
+                    state.pointer_x = surface_x;
+                    state.update_hover(idx, qh);
+                }
+            }
+            Event::Button { button, state: btn_state, .. } => {
+                use wayland_client::protocol::wl_pointer::ButtonState;
+                if !matches!(btn_state, wayland_client::WEnum::Value(ButtonState::Pressed)) {
+                    return;
+                }
+                let Some(idx) = state.pointer_focus else { return; };
+                // evdev button codes → 1=left, 2=middle, 3=right.
+                let n = match button { 0x110 => 1, 0x112 => 2, 0x111 => 3, _ => return };
+                if let Some(k) = state.block_at(idx, state.pointer_x) {
+                    state.spawn_click(k, n);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+// The hover widget's own layer surface dispatches here (keyed by `WidgetTag`),
+// separate from the bars' layer surfaces (keyed by `usize`).
+impl Dispatch<ZwlrLayerSurfaceV1, WidgetTag> for State {
+    fn event(state: &mut Self, surface: &ZwlrLayerSurfaceV1, event: zwlr_layer_surface_v1::Event,
+             _tag: &WidgetTag, _: &Connection, qh: &QueueHandle<Self>) {
+        let is_current = matches!(&state.widget, Some(w) if &w.layer_surface == surface);
+        match event {
+            zwlr_layer_surface_v1::Event::Configure { serial, .. } => {
+                surface.ack_configure(serial);
+                if is_current {
+                    if let Some(w) = &mut state.widget { w.configured = true; }
+                    state.draw_widget(qh);
+                }
+            }
+            zwlr_layer_surface_v1::Event::Closed if is_current => {
+                state.clear_hover();
+            }
+            _ => {}
+        }
+    }
+}
+
+impl State {
+    /// Block index under a surface-local x-position on bar `idx`, if any.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    fn block_at(&self, idx: usize, surface_x: f64) -> Option<usize> {
+        let bar = self.bars.get(idx)?;
+        let full_w = *bar.block_pix_ends.last()?;
+        if full_w == 0 { return None; }
+        // Surface-local (logical) → buffer pixels.
+        let scale = self.cfg.buffer_scale.max(1);
+        let x = (surface_x.max(0.0) as u32).saturating_mul(scale);
+        // Status is right-aligned: it begins one text-padding in from its
+        // right edge, which sits at the bar's right edge.
+        let start = bar.width.saturating_sub(bar.textpadding).saturating_sub(full_w);
+        let rel = x.checked_sub(start)?;
+        bar.block_pix_ends.iter().position(|&end| rel < end)
+    }
+
+    /// Recompute which block the pointer hovers on bar `idx`.  When it crosses
+    /// into a block with a `hover_command`, (re)build the floating widget.
+    fn update_hover(&mut self, idx: usize, qh: &QueueHandle<Self>) {
+        let target = self.block_at(idx, self.pointer_x).map(|k| (idx, k));
+        if target == self.hover_target { return; }
+        self.hover_target = target;
+        self.close_widget();
+        if let Some((bar_idx, block_idx)) = target {
+            let cmd = self.block_actions.get(block_idx)
+                .map(|a| a.hover_command.clone()).unwrap_or_default();
+            if !cmd.is_empty() {
+                self.open_widget(bar_idx, block_idx, &cmd, qh);
+            }
+        }
+    }
+
+    /// Forget the hover target and tear down any open widget.
+    fn clear_hover(&mut self) {
+        self.hover_target = None;
+        self.close_widget();
+    }
+
+    /// Destroy the floating widget's surfaces, if any.
+    fn close_widget(&mut self) {
+        if let Some(w) = self.widget.take() {
+            w.layer_surface.destroy();
+            w.surface.destroy();
+        }
+    }
+
+    /// Run a block's `hover_command` and pop up a widget showing its output,
+    /// anchored just below (or above) the block on the bar's output.
+    #[allow(clippy::cast_possible_truncation)]
+    fn open_widget(&mut self, bar_idx: usize, block_idx: usize, cmd: &str, qh: &QueueHandle<Self>) {
+        let (Some(compositor), Some(layer_shell)) = (self.compositor.clone(), self.layer_shell.clone())
+        else { return };
+
+        // Run the command (fast utilities like `cal`; a short blocking call).
+        let text = std::process::Command::new("sh")
+            .arg("-c").arg(cmd)
+            .env("WAYLAND_DISPLAY", &self.wayland_socket)
+            .output().ok()
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+            .unwrap_or_default();
+        let mut lines: Vec<String> = text.trim_end_matches('\n').lines().map(str::to_owned).collect();
+        while lines.last().is_some_and(|l| l.trim().is_empty()) { lines.pop(); }
+        if lines.is_empty() { return; }
+
+        // Widget geometry in buffer pixels (same coordinate space as the bar).
+        let pad = self.textpadding;
+        let line_h = self.font.height().max(1);
+        // Measure the *visible* text: ANSI escapes (from e.g. `cal --color=always`)
+        // are stripped before drawing, so they must not count toward the width.
+        let text_w = lines.iter()
+            .map(|l| self.font.measure(&azoth_render::strip_ansi(l), 0))
+            .max().unwrap_or(0);
+        if text_w == 0 { return; }
+        let width  = text_w + pad * 2;
+        let height = line_h * lines.len() as u32 + pad * 2;
+
+        // Align the widget's right edge to the block's right edge on the bar.
+        let bar = &self.bars[bar_idx];
+        let Some(&full_w) = bar.block_pix_ends.last() else { return };
+        if full_w == 0 { return; }
+        let text_start  = bar.width.saturating_sub(bar.textpadding).saturating_sub(full_w);
+        let block_right = text_start + bar.block_pix_ends.get(block_idx).copied().unwrap_or(full_w);
+        let margin_right_buf = bar.width.saturating_sub(block_right);
+        let bottom = bar.bottom;
+        let bar_h  = bar.height;
+        let wl_output = bar.wl_output.clone();
+
+        // Layer-shell size/margins are logical; the buffer is in physical pixels.
+        let scale = self.cfg.buffer_scale.max(1);
+        let w_logical = width.div_ceil(scale);
+        let h_logical = height.div_ceil(scale);
+        let margin_right = (margin_right_buf / scale).cast_signed();
+        let margin_v     = (bar_h / scale).cast_signed();
+
+        let surface = compositor.create_surface(qh, ());
+        let anchor = Anchor::Right | if bottom { Anchor::Bottom } else { Anchor::Top };
+        let ls = layer_shell.get_layer_surface(
+            &surface, Some(&wl_output),
+            zwlr_layer_shell_v1::Layer::Top, "dwlb-widget".to_string(), qh, WidgetTag,
+        );
+        ls.set_size(w_logical, h_logical);
+        ls.set_anchor(anchor);
+        // set_margin(top, right, bottom, left): push the widget clear of the bar.
+        if bottom {
+            ls.set_margin(0, margin_right, margin_v, 0);
+        } else {
+            ls.set_margin(margin_v, margin_right, 0, 0);
+        }
+        // -1: anchor to the real output edge, ignoring the bar's exclusive zone,
+        // so `margin_v` alone positions the widget flush against the bar.
+        ls.set_exclusive_zone(-1);
+        ls.set_keyboard_interactivity(zwlr_layer_surface_v1::KeyboardInteractivity::None);
+        surface.commit();
+
+        let stride = width * 4;
+        self.widget = Some(Widget {
+            surface, layer_surface: ls, lines,
+            width, height, stride,
+            bufsize: stride as usize * height as usize,
+            configured: false,
+        });
+    }
+
+    /// Render the current widget's text into an SHM buffer and attach it.
+    fn draw_widget(&self, qh: &QueueHandle<Self>) {
+        let Some(w) = &self.widget else { return };
+        if !w.configured { return; }
+
+        // Round the widget's corners to match windows when the feature is on.
+        // corner_radius is logical; scale it to the widget's buffer pixels.
+        #[cfg(feature = "rounded-corners")]
+        let corner_radius = crate::config::get().corner_radius * self.cfg.buffer_scale.max(1);
+        #[cfg(not(feature = "rounded-corners"))]
+        let corner_radius = 0;
+
+        let mut pixels = vec![0u32; w.bufsize / 4];
+        azoth_render::render_text_widget(&mut pixels, &azoth_render::TextWidgetParams {
+            width: w.width, height: w.height, stride: w.stride,
+            padding: self.textpadding,
+            line_height: self.font.height().max(1),
+            corner_radius,
+            fg:     &self.cfg.inactive_fg_color,
+            bg:     &self.cfg.inactive_bg_color,
+            border: &self.cfg.active_fg_color,
+            lines:  &w.lines,
+            font:   &self.font,
+        });
+
+        let fd: OwnedFd = match allocate_shm_file(w.bufsize as u64) {
+            Ok(fd) => fd,
+            Err(e) => { tracing::warn!("[bar] widget shm alloc: {e}"); return; }
+        };
+        if let Err(e) = write_all_fd(&fd, bytemuck::cast_slice(&pixels)) {
+            tracing::warn!("[bar] widget write pixels: {e}"); return;
+        }
+        let Some(shm) = &self.shm else { return; };
+        #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+        let pool = shm.create_pool(fd.as_fd(), w.bufsize as i32, qh, ());
+        let buffer = pool.create_buffer(
+            0, w.width.cast_signed(), w.height.cast_signed(),
+            w.stride.cast_signed(), wl_shm::Format::Argb8888, qh, (),
+        );
+        pool.destroy();
+        w.surface.set_buffer_scale(self.cfg.buffer_scale.cast_signed());
+        w.surface.attach(Some(&buffer), 0, 0);
+        w.surface.damage_buffer(0, 0, w.width.cast_signed(), w.height.cast_signed());
+        w.surface.commit();
+    }
+
+    /// Spawn a block's click command, exposing the mouse button as `$BLOCK_BUTTON`.
+    fn spawn_click(&self, k: usize, button: u32) {
+        let Some(action) = self.block_actions.get(k) else { return };
+        if action.click.is_empty() { return; }
+        // Same environment fix-ups as the prompt launcher so Chromium/Electron
+        // apps find the Wayland session.
+        let mut command = std::process::Command::new("sh");
+        command
+            .arg("-c")
+            .arg(&action.click)
+            .env_remove("DISPLAY")
+            .env("WAYLAND_DISPLAY", &self.wayland_socket)
+            .env("XDG_SESSION_TYPE", "wayland")
+            .env("XDG_CURRENT_DESKTOP", "rwl")
+            .env("BLOCK_BUTTON", button.to_string());
+        {
+            let cfg = crate::config::get();
+            if let Some(ref theme) = cfg.cursor_theme {
+                command.env("XCURSOR_THEME", theme);
+            }
+            if cfg.cursor_size > 0 {
+                command.env("XCURSOR_SIZE", cfg.cursor_size.to_string());
+            }
+        }
+        command.spawn().ok();
+    }
+}
+
+/// Extract per-block click/hover behaviour from the bar settings.
+fn block_actions_from_settings(s: &BarSettings) -> Vec<BlockAction> {
+    s.blocks.iter().map(|b| BlockAction {
+        click: b.command_click.clone(),
+        hover_command: b.hover_command.clone(),
+    }).collect()
+}
+
+/// Pixel x-offset (relative to status text start) at which each block ends.
+fn compute_pix_ends(font: &Font, raw: &str, bounds: &[u32]) -> Vec<u32> {
+    bounds.iter().map(|&b| {
+        let mut end = (b as usize).min(raw.len());
+        while end > 0 && !raw.is_char_boundary(end) { end -= 1; }
+        font.measure(&raw[..end], 0)
+    }).collect()
 }
 
 impl State {
@@ -966,10 +1327,14 @@ fn handle_socket_command(buf: &str, state: &mut State, qh: &QueueHandle<State>, 
         "status" => {
             if rest.is_empty() { return; }
             let parsed = Arc::new(parse_into_customtext(rest, &state.cfg));
-            let Some((&last, rest_idx)) = indices.split_last() else { return; };
-            for &i in rest_idx { state.bars[i].status = Arc::clone(&parsed); state.bars[i].redraw = true; }
-            state.bars[last].status = parsed;
-            state.bars[last].redraw = true;
+            for &i in &indices {
+                let bar = &mut state.bars[i];
+                bar.status = Arc::clone(&parsed);
+                // Externally-fed status has no per-block geometry.
+                bar.block_pix_ends.clear();
+                bar.redraw = true;
+            }
+            state.clear_hover();
         }
         "title" => {
             if rest.is_empty() { return; }
@@ -1021,6 +1386,7 @@ fn handle_socket_command(buf: &str, state: &mut State, qh: &QueueHandle<State>, 
                 let new_delim  = settings.blocks_delim.clone();
                 *g = (new_blocks, new_delim, true);
             }
+            state.block_actions = block_actions_from_settings(settings);
 
             // Reload font and recompute bar geometry if font or vertical_padding changed.
             let dpi = 96 * state.cfg.buffer_scale;
@@ -1062,6 +1428,8 @@ fn handle_socket_command(buf: &str, state: &mut State, qh: &QueueHandle<State>, 
             }
 
             for bar in &mut state.bars { bar.redraw = true; }
+            // Block geometry/actions changed; drop any open hover widget.
+            state.clear_hover();
         }
         _ => {}
     }
@@ -1129,7 +1497,7 @@ fn run_event_loop(
     listener: &UnixListener,
     stop: &Arc<AtomicBool>,
     blocks_pipe: &OwnedFd,
-    latest_status: &Arc<Mutex<String>>,
+    latest_status: &SharedStatus,
     ipc_fd: OwnedFd,
     notification_flag: &AtomicBool,
 ) {
@@ -1242,12 +1610,18 @@ fn run_event_loop(
                     Ok(_) => {}
                 }
             }
-            let new_status = std::mem::take(&mut *latest_status.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
+            let (new_status, new_bounds) = std::mem::take(&mut *latest_status.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
             if !new_status.is_empty() {
                 let parsed = Arc::new(parse_into_customtext(&new_status, &state.cfg));
+                let pix_ends = compute_pix_ends(&state.font, &new_status, &new_bounds);
                 for bar in &mut state.bars {
                     bar.status = Arc::clone(&parsed);
+                    bar.block_pix_ends.clone_from(&pix_ends);
                     bar.redraw = true;
+                }
+                // The status width changed, so the block under the pointer may have too.
+                if let Some(idx) = state.pointer_focus {
+                    state.update_hover(idx, qh);
                 }
             }
         }
@@ -1326,6 +1700,7 @@ pub fn start(reader: PipeReader, settings: BarSettings, wayland_socket: String, 
 fn run_bar(ipc_fd: OwnedFd, settings: BarSettings, wayland_socket: String, notification_flag: &Arc<AtomicBool>) {
     let cfg = Config::from_settings(&settings);
     let blocks = blocks_from_settings(&settings);
+    let block_actions = block_actions_from_settings(&settings);
     let delim  = settings.blocks_delim;
     let initial_tags: Vec<String> = if settings.tag_names.is_empty() {
         DEFAULT_TAG_NAMES.iter().map(|&s| s.to_owned()).collect()
@@ -1455,6 +1830,7 @@ fn run_bar(ipc_fd: OwnedFd, settings: BarSettings, wayland_socket: String, notif
 
     let mut state = State::new(cfg, font, bar_height, textpadding, wayland_socket, Arc::clone(&shared_blocks));
     state.tags = initial_tags;
+    state.block_actions = block_actions;
     if event_queue.roundtrip(&mut state).is_err() {
         tracing::error!("[bar] initial Wayland roundtrip failed");
         azoth_render::fini_fcft();
@@ -1485,7 +1861,7 @@ fn run_bar(ipc_fd: OwnedFd, settings: BarSettings, wayland_socket: String, notif
         }
     }
 
-    let latest_status: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
+    let latest_status: SharedStatus = Arc::new(Mutex::new((String::new(), Vec::new())));
     let status_for_blocks = Arc::clone(&latest_status);
 
     let thread_shared = Arc::clone(&shared_blocks);
@@ -1538,11 +1914,11 @@ fn run_bar(ipc_fd: OwnedFd, settings: BarSettings, wayland_socket: String, notif
                 .filter_map(|(n, flag)| flag.swap(false, Ordering::Relaxed).then_some(1u32 << u32::from(*n)))
                 .fold(0u32, |acc, bit| acc | bit);
             let new_cache = blocks::update_cache(time, signal_mask, cache, &local_blocks);
-            let new_status = blocks::build_status(&new_cache, &local_delim);
+            let (new_status, new_bounds) = blocks::build_status_bounds(&new_cache, &local_delim);
             let new_hash = blocks::fast_hash(&new_status);
             if new_hash != prev_hash {
                 prev_hash = new_hash;
-                *status_for_blocks.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = new_status;
+                *status_for_blocks.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = (new_status, new_bounds);
                 let _ = rustix::io::write(&blocks_pipe_w, b"x");
             }
             cache = new_cache;

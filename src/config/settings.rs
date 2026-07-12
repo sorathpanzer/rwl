@@ -89,6 +89,8 @@ fn lua_bar_blocks(t: &mlua::Table, default: Vec<BlockSettings>) -> Vec<BlockSett
                 command:  lua_str(&tbl, "command").unwrap_or_default(),
                 interval: lua_u32(&tbl, "interval", 0),
                 signal:   u8::try_from(lua_u32(&tbl, "signal", 0)).unwrap_or(0),
+                command_click: lua_str(&tbl, "command_click").unwrap_or_default(),
+                hover_command: lua_str(&tbl, "hover_command").unwrap_or_default(),
             })
         })
         .collect();
