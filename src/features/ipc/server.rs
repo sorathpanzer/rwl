@@ -328,6 +328,25 @@ fn cmd_dispatch(line: &str, stream: &mut UnixStream, state: &mut Rwl) {
         "togglegaps"        => state.dispatch(&Action::ToggleGaps),
         #[cfg(feature = "lock")]
         "lock"              => state.dispatch(&Action::Lock),
+        // ── wallpaper ─────────────────────────────────────────────────────────
+        // Syntax: wallpaper <path> [fill|fit|stretch|center]
+        //         wallpaper off|none|clear
+        #[cfg(feature = "wallpaper")]
+        "wallpaper" => {
+            match args.first().copied() {
+                Some("off" | "none" | "clear") => {
+                    crate::features::wallpaper::set_override(None, None);
+                    state.schedule_render();
+                }
+                Some(path) => {
+                    let mode = args.get(1)
+                        .and_then(|s| crate::features::wallpaper::WallpaperMode::parse(s));
+                    crate::features::wallpaper::set_override(Some((*path).to_owned()), mode);
+                    state.schedule_render();
+                }
+                None => tracing::debug!("[wm-ipc] wallpaper: missing path"),
+            }
+        }
         _ => tracing::debug!("[wm-ipc] unknown command: {cmd}"),
     }
 }

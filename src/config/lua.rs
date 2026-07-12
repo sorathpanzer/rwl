@@ -93,6 +93,12 @@ const PIP_KEYS: &[&str] = &[
 const WINDOWS_KEYS: &[&str] = &[
     "follow", "border_px", "border_color", "focus_color", "fullscreen_bg",
     "auto_back_empty_tag", "corner_radius", "gaps_px",
+    #[cfg(feature = "wallpaper")]
+    "wallpaper",
+    #[cfg(feature = "wallpaper")]
+    "wallpapers",
+    #[cfg(feature = "wallpaper")]
+    "wallpaper_mode",
 ];
 
 const EFFECTS_KEYS: &[&str] = &[
@@ -187,6 +193,12 @@ impl Config {
             border_color:  w.map_or(defaults.border_color,  |t| lua_color(t, "border_color",  defaults.border_color)),
             focus_color:   w.map_or(defaults.focus_color,   |t| lua_color(t, "focus_color",   defaults.focus_color)),
             fullscreen_bg: w.map_or(defaults.fullscreen_bg, |t| lua_color(t, "fullscreen_bg", defaults.fullscreen_bg)),
+            #[cfg(feature = "wallpaper")]
+            wallpaper:      w.and_then(|t| lua_str(t, "wallpaper")).or(defaults.wallpaper),
+            #[cfg(feature = "wallpaper")]
+            wallpapers:     w.map_or(defaults.wallpapers, |t| lua_wallpapers(t, tag_count)),
+            #[cfg(feature = "wallpaper")]
+            wallpaper_mode: w.map_or(defaults.wallpaper_mode, |t| lua_wallpaper_mode(t, defaults.wallpaper_mode)),
             #[cfg(feature = "fade")]
             fade_in_ms:    ef.map_or(defaults.fade_in_ms,    |t| lua_u32(t,   "fade_in_ms",    defaults.fade_in_ms)),
             #[cfg(feature = "fade")]
@@ -346,6 +358,32 @@ fn lua_tap_button_map(t: &mlua::Table, default: TapButtonMap) -> TapButtonMap {
         Ok("left_right_middle") => TapButtonMap::LeftRightMiddle,
         _                       => default,
     }
+}
+
+#[cfg(feature = "wallpaper")]
+fn lua_wallpaper_mode(
+    t: &mlua::Table,
+    default: crate::features::wallpaper::WallpaperMode,
+) -> crate::features::wallpaper::WallpaperMode {
+    lua_str(t, "wallpaper_mode")
+        .and_then(|s| crate::features::wallpaper::WallpaperMode::parse(&s))
+        .unwrap_or(default)
+}
+
+/// Parse `windows.wallpapers = { [tag] = "path", … }` into a vec indexed by tag
+/// position (tag 1 → index 0), length `tag_count`. Missing/empty entries are
+/// `None`, meaning the tag falls back to the single `wallpaper` value.
+#[cfg(feature = "wallpaper")]
+fn lua_wallpapers(t: &mlua::Table, tag_count: u32) -> Vec<Option<String>> {
+    let Ok(tbl) = t.get::<mlua::Table>("wallpapers") else { return Vec::new() };
+    (1..=tag_count)
+        .map(|tag| {
+            tbl.get::<Option<String>>(i64::from(tag))
+                .ok()
+                .flatten()
+                .filter(|s| !s.is_empty())
+        })
+        .collect()
 }
 
 fn lua_xkb_rules(t: &mlua::Table, default: XkbRules) -> XkbRules {

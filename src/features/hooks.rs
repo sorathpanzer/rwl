@@ -15,7 +15,16 @@
 //! function on_window_close(win)     -- fired after the window leaves the layout
 //!     if rwl.count(rwl.tag(2)) < 3 then rwl.set_layout("tile") end
 //! end
-//! function on_tag_switch(old, new)  rwl.notify("tag " .. new) end
+//! function on_tag_switch(old, new)  -- e.g. a wallpaper per tag
+//!     -- also fired once at startup with old == 0, so the launch tag's
+//!     -- wallpaper is applied instead of a black screen.
+//!     local papers = { [rwl.tag(1)] = "~/pics/a.png", [rwl.tag(2)] = "~/pics/b.png" }
+//!     if papers[new] then rwl.set_wallpaper(papers[new], "fill") end
+//! end
+//! function on_startup()             -- fired once, after the first output
+//!     -- warm every per-tag wallpaper off-thread so the first switch has no lag
+//!     for _, p in pairs(papers) do rwl.preload(p) end
+//! end
 //! function on_focus(win)            -- ...
 //! function on_title_change(win, t)  -- ...
 //! ```
@@ -61,6 +70,9 @@ thread_local! {
     /// [`refresh`] right before each hook fires so `rwl.count(mask)` can answer
     /// synchronously without a live `&Rwl` inside the Lua closure.
     static SNAPSHOT: RefCell<Vec<u32>> = const { RefCell::new(Vec::new()) };
+    /// Set once [`startup`] has fired, so the startup hooks run a single time per
+    /// process (not again on hotplug or config reload).
+    static STARTUP_DONE: Cell<bool> = const { Cell::new(false) };
 }
 
 // ---------------------------------------------------------------------------
@@ -77,6 +89,10 @@ enum HookCmd {
     Focus(Window),
     Close(Window),
     SetLayout(usize),
+    /// Set (or, with a `None` path, clear) the desktop wallpaper. `None` mode
+    /// keeps the current fit mode.
+    #[cfg(feature = "wallpaper")]
+    SetWallpaper(Option<String>, Option<crate::features::wallpaper::WallpaperMode>),
 }
 
 fn enqueue(cmd: HookCmd) {
@@ -146,6 +162,11 @@ fn apply(state: &mut Rwl, cmd: HookCmd) {
             }
         }
         HookCmd::SetLayout(idx) => state.dispatch(&Action::SetLayout(idx)),
+        #[cfg(feature = "wallpaper")]
+        HookCmd::SetWallpaper(path, mode) => {
+            crate::features::wallpaper::set_override(path, mode);
+            state.schedule_render();
+        }
     }
 }
 
@@ -309,6 +330,36 @@ pub fn setup(lua: &Lua) -> mlua::Result<()> {
         })?,
     )?;
 
+    // rwl.preload("~/pic.png"): decode a wallpaper into the cache on a background
+    // thread without displaying it. Call from on_startup for each per-tag
+    // wallpaper so the first switch to that tag is instant (no decode stall).
+    #[cfg(feature = "wallpaper")]
+    rwl.set(
+        "preload",
+        lua.create_function(|_, path: String| {
+            if !path.is_empty() {
+                crate::features::wallpaper::request_decode(path);
+            }
+            Ok(())
+        })?,
+    )?;
+    // rwl.set_wallpaper("~/pic.png", "fill"): set the desktop wallpaper. The
+    // mode ("fill"/"fit"/"stretch"/"center") is optional and defaults to the
+    // current one. A nil or empty path clears the wallpaper. Handy from
+    // `on_tag_switch` for a per-tag background.
+    #[cfg(feature = "wallpaper")]
+    rwl.set(
+        "set_wallpaper",
+        lua.create_function(|_, (path, mode): (Option<String>, Option<String>)| {
+            let path = path.filter(|p| !p.is_empty());
+            let mode = mode
+                .as_deref()
+                .and_then(crate::features::wallpaper::WallpaperMode::parse);
+            enqueue(HookCmd::SetWallpaper(path, mode));
+            Ok(())
+        })?,
+    )?;
+
     lua.globals().set("rwl", rwl)?;
     Ok(())
 }
@@ -377,6 +428,36 @@ pub fn focus(state: &Rwl, window: &Window) {
     if changed {
         fire_window("on_focus", window);
     }
+}
+
+/// Call a global Lua function that takes no arguments, if defined.
+fn fire_nullary(name: &str) {
+    LUA.with(|cell| {
+        let guard = cell.borrow();
+        let Some(lua) = guard.as_ref() else { return };
+        let Ok(func) = lua.globals().get::<mlua::Function>(name) else { return };
+        if let Err(e) = func.call::<()>(()) {
+            tracing::warn!("[hook] {name}: {e}");
+        }
+    });
+}
+
+/// Fire the one-time startup hooks, called once the first output exists so live
+/// state (current tag, window list) is valid.
+///
+/// Fires `on_startup()` if defined, then a synthetic `on_tag_switch(0, current)`
+/// so per-tag handlers — e.g. a wallpaper per tag — apply to the tag shown at
+/// launch instead of leaving it unset (a black screen). Runs at most once per
+/// process; it is **not** re-fired on config reload (the wallpaper override, and
+/// any other applied state, already survives a reload).
+pub fn startup(state: &Rwl, current_tags: u32) {
+    if STARTUP_DONE.with(Cell::get) {
+        return;
+    }
+    STARTUP_DONE.with(|d| d.set(true));
+    refresh(state);
+    fire_nullary("on_startup");
+    tag_switch(state, 0, current_tags);
 }
 
 /// Fire `on_tag_switch(old_mask, new_mask)`.

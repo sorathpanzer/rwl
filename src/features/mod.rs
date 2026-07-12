@@ -34,3 +34,5 @@ pub mod hooks;
 pub mod pip;
 #[cfg(feature = "lock")]
 pub mod lock;
+#[cfg(feature = "wallpaper")]
+pub mod wallpaper;

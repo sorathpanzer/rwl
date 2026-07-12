@@ -404,6 +404,21 @@ fn render_frame(data: &mut WinitData, state: &mut Rwl) -> bool {
                 let bg_elems = crate::render::layer_elements(
                     renderer, &data.output, smithay::wayland::shell::wlr_layer::Layer::Background, scale,
                 );
+                // Native wallpaper — backmost, below the Background layer shell.
+                #[cfg(feature = "wallpaper")]
+                let wallpaper_tags = state
+                    .monitors
+                    .iter()
+                    .find(|m| m.output == data.output)
+                    .map_or(0, crate::monitor::Monitor::tags);
+                #[cfg(feature = "wallpaper")]
+                let wallpaper_elems: Vec<crate::render::RwlRenderElement> =
+                    crate::features::wallpaper::elements(renderer, &data.output, scale, wallpaper_tags)
+                        .into_iter()
+                        .map(crate::render::RwlRenderElement::from)
+                        .collect();
+                #[cfg(not(feature = "wallpaper"))]
+                let wallpaper_elems: Vec<crate::render::RwlRenderElement> = Vec::new();
                 let lock_elems = crate::render::lock_surface_elements(
                     renderer, &state.lock_surfaces, &data.output, scale,
                 );
@@ -478,7 +493,8 @@ fn render_frame(data: &mut WinitData, state: &mut Rwl) -> bool {
                             + border_elems.len()
                             + window_elems.len()
                             + bottom_elems.len()
-                            + bg_elems.len(),
+                            + bg_elems.len()
+                            + wallpaper_elems.len(),
                     );
                     all.extend(cursor_elems.into_iter().map(crate::render::RwlRenderElement::from));
                     all.extend(dnd_elems.into_iter().map(crate::render::RwlRenderElement::from));
@@ -494,6 +510,7 @@ fn render_frame(data: &mut WinitData, state: &mut Rwl) -> bool {
                     all.extend(window_elems);
                     all.extend(bottom_elems.into_iter().map(crate::render::RwlRenderElement::from));
                     all.extend(bg_elems.into_iter().map(crate::render::RwlRenderElement::from));
+                    all.extend(wallpaper_elems);
                     all
                 };
 

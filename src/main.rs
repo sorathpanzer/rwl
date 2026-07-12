@@ -73,6 +73,11 @@ fn run(startup_cmd: Option<String>) -> Result<()> {
 
     let mut state = Rwl::new(display, loop_handle.clone(), loop_signal)?;
 
+    // Register the background wallpaper decoder before any output is added, so
+    // the startup `on_startup` / per-tag hooks can preload images off-thread.
+    #[cfg(feature = "wallpaper")]
+    features::wallpaper::init_decoder(&loop_handle);
+
     // Select backend: when the `winit` feature is enabled and we are running
     // nested inside an existing compositor, use winit; otherwise use udev/DRM.
     #[cfg(feature = "winit")]

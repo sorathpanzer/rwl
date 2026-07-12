@@ -1079,6 +1079,15 @@ impl Rwl {
         // without holding a borrow on self while self.backend is mutably borrowed.
         let focused = self.focused_window().cloned();
 
+        // Tag-mask of the monitor driving this output, read before the mutable
+        // `self.backend` borrow, so the per-tag wallpaper can be selected.
+        #[cfg(feature = "wallpaper")]
+        let wallpaper_tags = self
+            .monitors
+            .iter()
+            .find(|m| m.output == output)
+            .map_or(0, crate::monitor::Monitor::tags);
+
         // When the overview is open on this output its thumbnail grid replaces the
         // normal window + border elements.
         #[cfg(feature = "overview")]
@@ -1088,7 +1097,7 @@ impl Rwl {
             .is_some_and(|o| o.on_output(&output));
 
         let elements: Vec<crate::render::RwlRenderElement> = {
-            let (window_elems, border_elems, cursor_elems, dnd_elems, xcursor_elems, overlay_elems, top_elems, bottom_elems, bg_elems, lock_elems, pip_elems) = {
+            let (window_elems, border_elems, cursor_elems, dnd_elems, xcursor_elems, overlay_elems, top_elems, bottom_elems, bg_elems, wallpaper_elems, lock_elems, pip_elems) = {
                 let Some(crate::backend::BackendData::Udev(ref mut udev)) = self.backend else {
                     return;
                 };
@@ -1179,6 +1188,15 @@ impl Rwl {
                 let bg_elems = crate::render::layer_elements(
                     renderer, &output, smithay::wayland::shell::wlr_layer::Layer::Background, scale,
                 );
+                // Native wallpaper — backmost, below the Background layer shell.
+                #[cfg(feature = "wallpaper")]
+                let wallpaper_elems: Vec<crate::render::RwlRenderElement> =
+                    crate::features::wallpaper::elements(renderer, &output, scale, wallpaper_tags)
+                        .into_iter()
+                        .map(crate::render::RwlRenderElement::from)
+                        .collect();
+                #[cfg(not(feature = "wallpaper"))]
+                let wallpaper_elems: Vec<crate::render::RwlRenderElement> = Vec::new();
                 let lock_elems = crate::render::lock_surface_elements(
                     renderer, &self.lock_surfaces, &output, scale,
                 );
@@ -1205,7 +1223,7 @@ impl Rwl {
                 };
                 #[cfg(not(feature = "pip"))]
                 let pip_elems: Vec<crate::render::RwlRenderElement> = Vec::new();
-                (window_elems, border_elems, cursor_elems, dnd_elems, xcursor_elems, overlay_elems, top_elems, bottom_elems, bg_elems, lock_elems, pip_elems)
+                (window_elems, border_elems, cursor_elems, dnd_elems, xcursor_elems, overlay_elems, top_elems, bottom_elems, bg_elems, wallpaper_elems, lock_elems, pip_elems)
             };
 
             // Session locked: composite ONLY the cursor, lock surfaces, and an
@@ -1265,7 +1283,8 @@ impl Rwl {
                     + border_elems.len()
                     + window_elems.len()
                     + bottom_elems.len()
-                    + bg_elems.len(),
+                    + bg_elems.len()
+                    + wallpaper_elems.len(),
             );
             combined.extend(cursor_elems.into_iter().map(crate::render::RwlRenderElement::from));
             combined.extend(dnd_elems.into_iter().map(crate::render::RwlRenderElement::from));
@@ -1281,6 +1300,7 @@ impl Rwl {
             combined.extend(window_elems);
             combined.extend(bottom_elems.into_iter().map(crate::render::RwlRenderElement::from));
             combined.extend(bg_elems.into_iter().map(crate::render::RwlRenderElement::from));
+            combined.extend(wallpaper_elems);
             combined
             }
         };

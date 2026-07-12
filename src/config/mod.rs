@@ -51,6 +51,18 @@ pub struct Config {
     pub border_color:               Color,
     pub focus_color:                Color,
     pub fullscreen_bg:              Color,
+    /// Desktop wallpaper image path (`~` expanded). Used as the fallback for any
+    /// tag without a `wallpapers` entry. `None` disables it.
+    #[cfg(feature = "wallpaper")]
+    pub wallpaper:                  Option<String>,
+    /// Per-tag wallpaper image paths, indexed by tag bit position (tag 1 = index
+    /// 0). `None` at an index means that tag uses the `wallpaper` fallback. Empty
+    /// when no per-tag wallpapers are configured.
+    #[cfg(feature = "wallpaper")]
+    pub wallpapers:                 Vec<Option<String>>,
+    /// How the wallpaper image is fitted to each output.
+    #[cfg(feature = "wallpaper")]
+    pub wallpaper_mode:             crate::features::wallpaper::WallpaperMode,
     #[cfg(feature = "fade")]
     pub fade_in_ms:                 u32,
     #[cfg(feature = "fade")]
@@ -133,6 +145,12 @@ impl Default for Config {
             // focus_color:  hex_color(0xdf73_ffff),
             focus_color:  hex_color(0xffff_ffff),
             fullscreen_bg: [0.0, 0.0, 0.0, 1.0],
+            #[cfg(feature = "wallpaper")]
+            wallpaper:      None,
+            #[cfg(feature = "wallpaper")]
+            wallpapers:     Vec::new(),
+            #[cfg(feature = "wallpaper")]
+            wallpaper_mode: crate::features::wallpaper::WallpaperMode::default(),
             #[cfg(feature = "fade")]
             fade_in_ms:   0,
             #[cfg(feature = "fade")]
@@ -240,6 +258,11 @@ pub fn reload() {
         *w = cfg;
         tracing::info!("Config reloaded from {}", config_path().display());
     }
+    // The runtime wallpaper override (rwl msg / Lua hook) deliberately survives
+    // reload; only forget paths that previously failed to decode so fixed paths
+    // are retried.
+    #[cfg(feature = "wallpaper")]
+    crate::features::wallpaper::on_reload();
 }
 
 fn load_config() -> Config {

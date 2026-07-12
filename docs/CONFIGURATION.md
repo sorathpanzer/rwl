@@ -61,6 +61,9 @@ Grouped tables: `windows`, `effects`, `keyboard`, `mouse`, `bar`, `overview`,
 | `corner_radius` | int | `8` | Rounded-corner radius. | `rounded-corners` |
 | `gaps_px` | int | `0` | Gap between tiled windows. | `gaps` |
 | `auto_back_empty_tag` | bool | `true` | Return to previous tag when a tag empties. | `auto-back-empty-tag` |
+| `wallpaper` | string | none | Fallback wallpaper image path (`~` expanded; PNG/JPEG), used for tags with no `wallpapers` entry. | `wallpaper` |
+| `wallpapers` | table | none | Per-tag wallpapers: `{ [tag] = "path", … }`. Preloaded at startup. | `wallpaper` |
+| `wallpaper_mode` | string | `fill` | Fit mode: `fill`, `fit`, `stretch`, `center`. | `wallpaper` |
 
 ### `effects`
 
@@ -332,10 +335,16 @@ user-defined callbacks fire on compositor events. Define any of:
 ```lua
 function on_window_open(win)  end   -- window just entered the layout
 function on_window_close(win) end   -- window just left the layout
-function on_tag_switch(old, new) end
+function on_tag_switch(old, new) end -- also fired once at startup (old == 0)
 function on_focus(win) end
 function on_title_change(win, title) end
+function on_startup() end            -- fired once, after the first output
 ```
+
+`on_tag_switch` is also fired once at startup with `old == 0` and `new` set to
+the launch tag, so per-tag state (such as a wallpaper) is applied immediately
+instead of only after the first manual tag switch. Use `on_startup` for one-time
+setup that isn't tag-specific.
 
 Example — dynamic layout that switches tag 2 to columns once it holds ≥3 windows:
 
@@ -356,6 +365,30 @@ function on_tag_switch(old, new)
 end
 ```
 
+Example — a different wallpaper per tag (`wallpaper` feature):
+
+```lua
+local papers = {
+    [rwl.tag(1)] = "~/pics/forest.png",
+    [rwl.tag(2)] = "~/pics/city.jpg",
+}
+
+function on_tag_switch(old, new)
+    if papers[new] then rwl.set_wallpaper(papers[new], "fill") end
+end
+
+-- Decode every wallpaper up front (off the render thread) so the first switch
+-- to each tag has no decode lag. on_tag_switch(0, launch_tag) fires right after
+-- this, applying the launch tag's wallpaper.
+function on_startup()
+    for _, path in pairs(papers) do rwl.preload(path) end
+end
+```
+
+`rwl.preload(path)` decodes on a background thread and caches the result; it
+does not change what is on screen. Cached images (whether preloaded or shown
+once) are reused, so a tag revisit never re-decodes.
+
 **Read helpers** query live state at call time:
 
 - `rwl.count(mask)` — how many windows on the selected monitor carry any tag in
@@ -365,7 +398,9 @@ end
 - `win:app_id()` — a window's app-id.
 
 **Action helpers** (`rwl.set_layout(name_or_index)`, `rwl.notify(text)`,
-`win:set_floating(bool)`, …) do **not** mutate compositor state synchronously —
+`rwl.set_wallpaper(path[, mode])` and `rwl.preload(path)` (`wallpaper` feature;
+nil path clears it), `win:set_floating(bool)`, …) do **not** mutate compositor
+state synchronously —
 they enqueue a command that is applied at a safe point (right after the callback
 returns, and once per event-loop iteration). This avoids re-entering the
 `&mut Rwl` borrow that is running the event. See

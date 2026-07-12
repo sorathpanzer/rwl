@@ -68,6 +68,20 @@ impl Rwl {
             self.initial_warp_done = true;
             crate::features::warp::warp_cursor_to_focused(self);
         }
+
+        // Decode + GPU-warm every configured wallpaper in the background so the
+        // first switch to any tag is instant. Idempotent across outputs/hotplug.
+        #[cfg(feature = "wallpaper")]
+        crate::features::wallpaper::preload_configured();
+
+        // Fire the one-time startup hooks now that a monitor and its initial tag
+        // exist, so a per-tag wallpaper (or other on_tag_switch state) is applied
+        // to the launch tag instead of leaving it unset. No-ops after the first.
+        #[cfg(feature = "hooks")]
+        {
+            let tags = self.sel_monitor().map_or(0, crate::monitor::Monitor::tags);
+            crate::features::hooks::startup(self, tags);
+        }
     }
 
     /// Re-apply monitor rules (scale, transform, position) to all existing outputs.

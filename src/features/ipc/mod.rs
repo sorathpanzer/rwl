@@ -37,6 +37,7 @@
 //! rwl msg togglebar        (bar feature)
 //! rwl msg barprompt        (bar feature)
 //! rwl msg togglegaps       (gaps feature)
+//! rwl msg wallpaper <path> [fill|fit|stretch|center] | wallpaper off  (wallpaper feature)
 //! ```
 //!
 //! **Bar commands** (sent to the embedded bar's socket, `bar` feature only):
@@ -142,6 +143,8 @@ fn usage() {
     eprintln!("       rwl msg togglegaps");
     #[cfg(feature = "lock")]
     eprintln!("       rwl msg lock");
+    #[cfg(feature = "wallpaper")]
+    eprintln!("       rwl msg wallpaper <path> [fill|fit|stretch|center] | wallpaper off");
 }
 
 // ── public entry point ────────────────────────────────────────────────────────
@@ -230,6 +233,9 @@ fn run_wm(args: &[String]) {
 
         #[cfg(feature = "lock")]
         "lock" => { wm_send(cmd); }
+
+        #[cfg(feature = "wallpaper")]
+        "wallpaper" if args.len() >= 2 => { wm_send(&args.join(" ")); }
 
         _ => {
             eprintln!("rwl msg: unknown or incomplete command: {cmd}");

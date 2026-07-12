@@ -8,7 +8,7 @@ license = "GPL-3.0-or-later"
 repository = "https://github.com/sorathpanzer/rwl"
 
 [features]
-default = ["tile", "monocle", "scratchpad", "col", "scroll", "dwindle", "bstack", "centeredmaster", "bar", "ipc", "winit", "rounded-corners", "gaps", "warp", "fade", "tag-transition", "pertag-layouts", "startup-cmds", "auto-back-empty-tag", "overview", "hooks", "pip", "mod-tap", "lock"]
+default = ["tile", "monocle", "scratchpad", "col", "scroll", "dwindle", "bstack", "centeredmaster", "bar", "ipc", "winit", "rounded-corners", "gaps", "warp", "fade", "tag-transition", "pertag-layouts", "startup-cmds", "auto-back-empty-tag", "overview", "hooks", "pip", "mod-tap", "lock", "wallpaper"]
 tile = []
 lock = ["dep:pam", "dep:zeroize"]
 monocle = []
@@ -31,6 +31,7 @@ gaps = []
 warp = []
 pertag-layouts = []
 startup-cmds = []
+wallpaper = ["dep:image"]
 auto-back-empty-tag = []
 bar = [
     "dep:azoth-render",
@@ -105,6 +106,8 @@ rustix                   = { version = "1",    features = ["fs", "event", "pipe"
 # Native screen locker (`lock` feature)
 pam                      = { version = "0.7", optional = true }
 zeroize                  = { version = "1",   optional = true }
+# Native wallpaper decoding (`wallpaper` feature)
+image                    = { version = "0.25", default-features = false, features = ["png", "jpeg"], optional = true }
 
 smithay = { git = "https://github.com/Smithay/smithay", rev = "85f83ab61711e725aa1f3481df4f4dc5370e925b", default-features = false, features = [
     "desktop",

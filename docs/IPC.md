@@ -62,6 +62,7 @@ error to stderr.
 | `barprompt` | | Open the bar prompt. (`bar`) |
 | `togglegaps` | | Toggle gaps. (`gaps`) |
 | `lock` | | Engage the native screen locker. (`lock`) |
+| `wallpaper` | `<path> [fill\|fit\|stretch\|center]` / `off` | Set or clear the desktop wallpaper at runtime. (`wallpaper`) |
 
 **`<output>`** for per-output commands (`view`, `toggleview`, `setlayout`,
 `status`, `subscribe`) may be `all`, `selected`, or a named output such as
