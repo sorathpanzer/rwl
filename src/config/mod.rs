@@ -52,12 +52,13 @@ pub struct Config {
     pub focus_color:                Color,
     pub fullscreen_bg:              Color,
     /// Desktop wallpaper image path (`~` expanded). Used as the fallback for any
-    /// tag without a `wallpapers` entry. `None` disables it.
+    /// tag without a `wallpaper.tags` entry (`wallpaper.default` in Lua). `None`
+    /// disables it.
     #[cfg(feature = "wallpaper")]
     pub wallpaper:                  Option<String>,
     /// Per-tag wallpaper image paths, indexed by tag bit position (tag 1 = index
-    /// 0). `None` at an index means that tag uses the `wallpaper` fallback. Empty
-    /// when no per-tag wallpapers are configured.
+    /// 0). `None` at an index means that tag uses the `wallpaper.default`
+    /// fallback. Empty when no per-tag wallpapers are configured.
     #[cfg(feature = "wallpaper")]
     pub wallpapers:                 Vec<Option<String>>,
     /// How the wallpaper image is fitted to each output.

@@ -8,7 +8,7 @@
 //!
 //! The effective wallpaper is the runtime **override** ([`set_override`], set by
 //! `rwl msg wallpaper` or the `rwl.set_wallpaper` Lua hook) if one exists, else
-//! the static `windows.wallpaper` config value. The override lives outside the
+//! the static `wallpaper.default` config value. The override lives outside the
 //! reloadable [`crate::config::Config`], so a hook-driven / per-tag wallpaper
 //! survives a config reload instead of vanishing.
 //!
@@ -70,13 +70,13 @@ struct Setting {
     mode: WallpaperMode,
 }
 
-/// The runtime override. `None` = no override (fall back to `windows.wallpaper`).
+/// The runtime override. `None` = no override (fall back to `wallpaper.default`).
 /// Holds only plain data (`String` + enum), so it is safely `Send + Sync` for a
 /// global `static`, unlike the [`MemoryRenderBuffer`] cache.
 static OVERRIDE: RwLock<Option<Setting>> = RwLock::new(None);
 
 /// Set the runtime wallpaper override (from `rwl msg wallpaper` or the
-/// `rwl.set_wallpaper` Lua hook). Unlike the static `windows.wallpaper` config
+/// `rwl.set_wallpaper` Lua hook). Unlike the static `wallpaper.default` config
 /// value this is **not** cleared by a config reload, so a hook-driven / per-tag
 /// wallpaper stays put when the Lua config is re-read. A `None` path clears the
 /// wallpaper; a `None` mode keeps the currently effective fit mode.
@@ -91,9 +91,9 @@ pub fn set_override(path: Option<String>, mode: Option<WallpaperMode>) {
 /// The effective wallpaper for a monitor showing tag-mask `tags`, in order of
 /// precedence:
 /// 1. the runtime override (`rwl msg` / `rwl.set_wallpaper`), if set;
-/// 2. the per-tag `windows.wallpapers[tag]` entry for the lowest visible tag
+/// 2. the per-tag `wallpaper.tags[tag]` entry for the lowest visible tag
 ///    that has one;
-/// 3. the single `windows.wallpaper` fallback.
+/// 3. the single `wallpaper.default` fallback.
 fn effective(tags: u32) -> (Option<String>, WallpaperMode) {
     if let Ok(guard) = OVERRIDE.read()
         && let Some(s) = guard.as_ref()
@@ -329,7 +329,7 @@ fn decode(path: &str) -> Option<Loaded> {
 /// tag-mask `tags`.
 ///
 /// Uses the effective wallpaper for `tags` (runtime override → per-tag
-/// `windows.wallpapers` → `windows.wallpaper` fallback), decoding on first use
+/// `wallpaper.tags` → `wallpaper.default` fallback), decoding on first use
 /// and reusing the cached buffer thereafter. Returns an empty vec when no
 /// wallpaper applies or the image failed to decode. Elements are backmost (drawn
 /// last in the front-to-back list).

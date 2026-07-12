@@ -46,8 +46,8 @@ tables. The table below lists every recognized key, its group, and its default.
 | `bar_cmd` | string[] | *(none)* | External status-bar command; receives the IPC status stream on stdin. |
 | `pertag_layouts` | table | tile on all tags | Per-tag layout assignment (`pertag-layouts` feature). |
 
-Grouped tables: `windows`, `effects`, `keyboard`, `mouse`, `bar`, `overview`,
-`pip`, plus `rwl` (the hooks namespace). Each is described below.
+Grouped tables: `windows`, `wallpaper`, `effects`, `keyboard`, `mouse`, `bar`,
+`overview`, `pip`, plus `rwl` (the hooks namespace). Each is described below.
 
 ### `windows`
 
@@ -61,9 +61,16 @@ Grouped tables: `windows`, `effects`, `keyboard`, `mouse`, `bar`, `overview`,
 | `corner_radius` | int | `8` | Rounded-corner radius. | `rounded-corners` |
 | `gaps_px` | int | `0` | Gap between tiled windows. | `gaps` |
 | `auto_back_empty_tag` | bool | `true` | Return to previous tag when a tag empties. | `auto-back-empty-tag` |
-| `wallpaper` | string | none | Fallback wallpaper image path (`~` expanded; PNG/JPEG), used for tags with no `wallpapers` entry. | `wallpaper` |
-| `wallpapers` | table | none | Per-tag wallpapers: `{ [tag] = "path", … }`. Preloaded at startup. | `wallpaper` |
-| `wallpaper_mode` | string | `fill` | Fit mode: `fill`, `fit`, `stretch`, `center`. | `wallpaper` |
+
+### `wallpaper`
+
+Requires the `wallpaper` feature.
+
+| Key | Type | Default | Meaning |
+|-----|------|---------|---------|
+| `tags` | table | none | Per-tag wallpapers: `{ [tag] = "path", … }`. Preloaded at startup. |
+| `default` | string | none | Fallback wallpaper image path (`~` expanded; PNG/JPEG), used for tags with no `tags` entry. |
+| `mode` | string | `fill` | Fit mode: `fill`, `fit`, `stretch`, `center`. |
 
 ### `effects`
 

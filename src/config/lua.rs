@@ -71,6 +71,8 @@ const TOPLEVEL_KEYS: &[&str] = &[
     "tag_count", "rules", "layouts", "monitor_rules",
     "keys", "buttons", "auto_spawn", "startup_cmds", "bar_cmd",
     "bar", "windows", "effects", "keyboard", "mouse", "pertag_layouts",
+    #[cfg(feature = "wallpaper")]
+    "wallpaper",
     #[cfg(feature = "overview")]
     "overview",
     #[cfg(feature = "pip")]
@@ -93,12 +95,11 @@ const PIP_KEYS: &[&str] = &[
 const WINDOWS_KEYS: &[&str] = &[
     "follow", "border_px", "border_color", "focus_color", "fullscreen_bg",
     "auto_back_empty_tag", "corner_radius", "gaps_px",
-    #[cfg(feature = "wallpaper")]
-    "wallpaper",
-    #[cfg(feature = "wallpaper")]
-    "wallpapers",
-    #[cfg(feature = "wallpaper")]
-    "wallpaper_mode",
+];
+
+#[cfg(feature = "wallpaper")]
+const WALLPAPER_KEYS: &[&str] = &[
+    "tags", "mode", "default",
 ];
 
 const EFFECTS_KEYS: &[&str] = &[
@@ -147,6 +148,8 @@ fn collect_unknown_keys(g: &mlua::Table) -> Vec<String> {
     let mut out = Vec::new();
     scan_keys(g, None, TOPLEVEL_KEYS, true, &mut out);
     if let Ok(t) = g.get::<mlua::Table>("windows")  { scan_keys(&t, Some("windows"),  WINDOWS_KEYS,  false, &mut out); }
+    #[cfg(feature = "wallpaper")]
+    if let Ok(t) = g.get::<mlua::Table>("wallpaper") { scan_keys(&t, Some("wallpaper"), WALLPAPER_KEYS, false, &mut out); }
     if let Ok(t) = g.get::<mlua::Table>("effects")  { scan_keys(&t, Some("effects"),  EFFECTS_KEYS,  false, &mut out); }
     if let Ok(t) = g.get::<mlua::Table>("keyboard") { scan_keys(&t, Some("keyboard"), KEYBOARD_KEYS, false, &mut out); }
     if let Ok(t) = g.get::<mlua::Table>("mouse")    { scan_keys(&t, Some("mouse"),    MOUSE_KEYS,    false, &mut out); }
@@ -178,6 +181,10 @@ impl Config {
         let k = kbd.as_ref();
         let mse: Option<mlua::Table> = g.get::<mlua::Table>("mouse").ok();
         let m = mse.as_ref();
+        #[cfg(feature = "wallpaper")]
+        let wall: Option<mlua::Table> = g.get::<mlua::Table>("wallpaper").ok();
+        #[cfg(feature = "wallpaper")]
+        let wp = wall.as_ref();
         Self {
             mouse_focus:   m.map_or(defaults.mouse_focus, |t| lua_bool(t, "mouse_focus", defaults.mouse_focus)),
             #[cfg(feature = "warp")]
@@ -194,11 +201,11 @@ impl Config {
             focus_color:   w.map_or(defaults.focus_color,   |t| lua_color(t, "focus_color",   defaults.focus_color)),
             fullscreen_bg: w.map_or(defaults.fullscreen_bg, |t| lua_color(t, "fullscreen_bg", defaults.fullscreen_bg)),
             #[cfg(feature = "wallpaper")]
-            wallpaper:      w.and_then(|t| lua_str(t, "wallpaper")).or(defaults.wallpaper),
+            wallpaper:      wp.and_then(|t| lua_str(t, "default")).or(defaults.wallpaper),
             #[cfg(feature = "wallpaper")]
-            wallpapers:     w.map_or(defaults.wallpapers, |t| lua_wallpapers(t, tag_count)),
+            wallpapers:     wp.map_or(defaults.wallpapers, |t| lua_wallpapers(t, tag_count)),
             #[cfg(feature = "wallpaper")]
-            wallpaper_mode: w.map_or(defaults.wallpaper_mode, |t| lua_wallpaper_mode(t, defaults.wallpaper_mode)),
+            wallpaper_mode: wp.map_or(defaults.wallpaper_mode, |t| lua_wallpaper_mode(t, defaults.wallpaper_mode)),
             #[cfg(feature = "fade")]
             fade_in_ms:    ef.map_or(defaults.fade_in_ms,    |t| lua_u32(t,   "fade_in_ms",    defaults.fade_in_ms)),
             #[cfg(feature = "fade")]
@@ -365,17 +372,17 @@ fn lua_wallpaper_mode(
     t: &mlua::Table,
     default: crate::features::wallpaper::WallpaperMode,
 ) -> crate::features::wallpaper::WallpaperMode {
-    lua_str(t, "wallpaper_mode")
+    lua_str(t, "mode")
         .and_then(|s| crate::features::wallpaper::WallpaperMode::parse(&s))
         .unwrap_or(default)
 }
 
-/// Parse `windows.wallpapers = { [tag] = "path", … }` into a vec indexed by tag
+/// Parse `wallpaper.tags = { [tag] = "path", … }` into a vec indexed by tag
 /// position (tag 1 → index 0), length `tag_count`. Missing/empty entries are
-/// `None`, meaning the tag falls back to the single `wallpaper` value.
+/// `None`, meaning the tag falls back to the single `wallpaper.default` value.
 #[cfg(feature = "wallpaper")]
 fn lua_wallpapers(t: &mlua::Table, tag_count: u32) -> Vec<Option<String>> {
-    let Ok(tbl) = t.get::<mlua::Table>("wallpapers") else { return Vec::new() };
+    let Ok(tbl) = t.get::<mlua::Table>("tags") else { return Vec::new() };
     (1..=tag_count)
         .map(|tag| {
             tbl.get::<Option<String>>(i64::from(tag))
