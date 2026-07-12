@@ -15,6 +15,7 @@ use smithay::wayland::selection::primary_selection::{
 };
 use smithay::input::dnd::Source;
 use smithay::wayland::selection::SelectionHandler;
+use smithay::wayland::selection::wlr_data_control::{DataControlHandler, DataControlState};
 
 use smithay::wayland::tablet_manager::TabletSeatHandler;
 
@@ -63,6 +64,12 @@ impl SeatHandler for Rwl {
 
 impl SelectionHandler for Rwl {
     type SelectionUserData = ();
+}
+
+impl DataControlHandler for Rwl {
+    fn data_control_state(&mut self) -> &mut DataControlState {
+        &mut self.data_control_state
+    }
 }
 
 impl WaylandDndGrabHandler for Rwl {

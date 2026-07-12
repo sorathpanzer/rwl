@@ -25,6 +25,7 @@ use smithay::wayland::output::OutputManagerState;
 use smithay::wayland::presentation::PresentationState;
 use smithay::wayland::selection::data_device::DataDeviceState;
 use smithay::wayland::selection::primary_selection::PrimarySelectionState;
+use smithay::wayland::selection::wlr_data_control::DataControlState;
 use smithay::wayland::shell::wlr_layer::{ExclusiveZone, Layer as WlrLayer, WlrLayerShellState};
 use smithay::wayland::shell::xdg::decoration::XdgDecorationState;
 use smithay::wayland::shell::xdg::dialog::{ToplevelDialogHint, XdgDialogHandler, XdgDialogState};
@@ -144,6 +145,13 @@ pub struct Rwl {
     pub seat_state: SeatState<Self>,
     pub data_device_state: DataDeviceState,
     pub primary_selection_state: PrimarySelectionState,
+    /// `zwlr_data_control_manager_v1` — lets clipboard managers (cliphist,
+    /// wl-clip-persist, wl-paste --watch, …) read and set the clipboard and
+    /// primary selection WITHOUT a surface or keyboard focus.  Without this,
+    /// such tools fall back to creating a surface and grabbing focus to set the
+    /// selection, which steals focus from the active client and clears its
+    /// text-selection highlight.  dwl exposes this via wlroots.
+    pub data_control_state: DataControlState,
     pub xdg_activation_state: XdgActivationState,
     pub dmabuf_state: DmabufState,
     /// `ext_idle_notify_v1` — notifies clients (swayidle, hypridle, bars) when
@@ -425,6 +433,13 @@ impl Rwl {
         let mut seat_state = SeatState::new();
         let data_device_state = DataDeviceState::new::<Self>(&display_handle);
         let primary_selection_state = PrimarySelectionState::new::<Self>(&display_handle);
+        // Enable data-control with primary-selection support so clipboard
+        // managers use the focus-less path instead of grabbing keyboard focus.
+        let data_control_state = DataControlState::new::<Self, _>(
+            &display_handle,
+            Some(&primary_selection_state),
+            |_| true,
+        );
         let xdg_activation_state = XdgActivationState::new::<Self>(&display_handle);
         let dmabuf_state = DmabufState::new();
         let idle_notifier = IdleNotifierState::<Self>::new(&display_handle, loop_handle.clone());
@@ -466,6 +481,7 @@ impl Rwl {
             seat_state,
             data_device_state,
             primary_selection_state,
+            data_control_state,
             xdg_activation_state,
             dmabuf_state,
             idle_notifier,

@@ -339,7 +339,20 @@ impl Rwl {
         // (mirrors C dwl's focusclient(c, false) where c may be NULL).
         // Guard against already-focused window to avoid calling update_borders()
         // and bumping border_counter on every motion event (defeats damage tracking).
+        //
+        // Also suppress focus-follows-mouse while a pointer button is held
+        // (cursor_mode == Pressed).  A button-down starts an implicit pointer
+        // grab owned by the client under the cursor: every drag — text
+        // selection, slider drag, DnD threshold — belongs to that client until
+        // release, so the keyboard focus must stay put even if the pointer
+        // grazes an adjacent tiled window or the window's own edge.  Otherwise
+        // the client loses keyboard focus mid-drag, which makes terminals clear
+        // their selection highlight and prevents them from setting the primary
+        // selection (the compositor denies set_selection from a non-focused
+        // client).  wlroots/dwl suppress focus changes during an implicit grab
+        // for exactly this reason.
         if crate::config::get().mouse_focus
+            && self.cursor_mode == CursorMode::Normal
             && !self.passthrough
             && let Some(w) = self.space.element_under(new_loc).map(|(w, _)| w.clone())
             && self.focused_window() != Some(&w)
@@ -419,8 +432,10 @@ impl Rwl {
             CursorMode::Normal | CursorMode::Pressed => {}
         }
 
-        // Mouse focus: only focus when cursor is over a window (see relative motion handler).
+        // Mouse focus: only focus when cursor is over a window, and never while a
+        // pointer button is held (implicit grab — see relative motion handler).
         if crate::config::get().mouse_focus
+            && self.cursor_mode == CursorMode::Normal
             && !self.passthrough
             && let Some(w) = self.space.element_under(new_loc).map(|(w, _)| w.clone())
             && self.focused_window() != Some(&w)

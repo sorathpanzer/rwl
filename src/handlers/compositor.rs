@@ -9,8 +9,8 @@ use smithay::reexports::wayland_server::Client;
 use smithay::reexports::wayland_server::Resource;
 use smithay::wayland::buffer::BufferHandler;
 use smithay::wayland::compositor::{
-    add_blocker, add_pre_commit_hook, BufferAssignment, CompositorClientState, CompositorHandler,
-    CompositorState, SurfaceAttributes, get_parent, is_sync_subsurface,
+    add_blocker, add_destruction_hook, add_pre_commit_hook, BufferAssignment, CompositorClientState,
+    CompositorHandler, CompositorState, SurfaceAttributes, get_parent, is_sync_subsurface,
 };
 use smithay::wayland::dmabuf::get_dmabuf;
 use smithay::wayland::drm_syncobj::DrmSyncobjCachedState;
@@ -45,6 +45,22 @@ impl CompositorHandler for Rwl {
     /// (`wp_linux_drm_syncobj_manager_v1`) the acquire point is waited on
     /// directly; otherwise the DMA-BUF implicit `IN_FENCE` is used as a fallback.
     fn new_surface(&mut self, surface: &WlSurface) {
+        // Schedule a repaint when this surface is destroyed.  A surface can
+        // disappear without any other surface committing — e.g. an xdg_popup
+        // context menu, a tooltip, an autocomplete list, or an IME popup being
+        // dismissed.  When that happens the render element for the popup is gone
+        // from the next elements list, and the OutputDamageTracker will damage
+        // the region it occupied and repaint the parent content underneath — but
+        // only if a render actually runs.  Without this hook nothing kicks the
+        // render loop, so the area under the just-closed surface stays stale
+        // (its content appears to "vanish") until some unrelated event (opening
+        // another window, moving the pointer over a client that redraws, …)
+        // forces a full repaint.  Covers popups, subsurfaces and layer surfaces
+        // alike, since destruction is the one lifecycle event with no commit.
+        add_destruction_hook::<Self, _>(surface, |state, _surface| {
+            state.schedule_render();
+        });
+
         add_pre_commit_hook::<Self, _>(surface, |state, _dh, surface| {
             // Retrieve the pending DMA-BUF and any explicit-sync acquire point.
             let (maybe_dmabuf, maybe_acquire) =
