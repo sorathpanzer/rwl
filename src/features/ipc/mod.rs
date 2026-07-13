@@ -9,6 +9,8 @@
 //! ```text
 //! rwl msg status [<output>]
 //! rwl msg subscribe [<output>]
+//! rwl msg clients                          (JSON array of all windows)
+//! rwl msg watch [window,focus,tag,title]   (newline-delimited JSON events)
 //! rwl msg view [<output>] <tagmask>
 //! rwl msg toggleview [<output>] <tagmask>
 //! rwl msg setlayout [<output>] <index>
@@ -50,16 +52,16 @@
 //! ```
 //! `<output>` may be `all`, `selected`, or a named output (e.g. `eDP-1`).
 
+pub mod event;
 pub mod server;
 
 use std::io::{BufRead as _, Read, Write as _};
 use std::os::unix::net::UnixStream;
-use std::path::PathBuf;
 
 // ── bar socket helpers (bar feature only) ─────────────────────────────────────
 
 #[cfg(feature = "bar")]
-use std::{fs, path::Path};
+use std::{fs, path::Path, path::PathBuf};
 
 #[cfg(feature = "bar")]
 fn bar_socket_dir() -> Option<PathBuf> {
@@ -111,12 +113,35 @@ fn wm_query(cmd_str: &str) {
     print!("{buf}");
 }
 
+/// Send a keep-alive command (`subscribe` / `watch`) and print each line the
+/// compositor pushes until the connection closes.
+fn wm_stream(cmd_str: &str) {
+    let Some(mut s) = wm_connect() else {
+        eprintln!("rwl msg: RWL_SOCK not set or compositor not running");
+        return;
+    };
+    let _ = s.write_all(cmd_str.as_bytes());
+    let _ = s.shutdown(std::net::Shutdown::Write);
+    let stdout = std::io::stdout();
+    for line in std::io::BufReader::new(s).lines() {
+        let Ok(l) = line else { break };
+        // Flush each line so consumers piping the stream (a window switcher, a
+        // `while read` loop) receive events immediately instead of in blocks.
+        let mut out = stdout.lock();
+        if writeln!(out, "{l}").is_err() || out.flush().is_err() {
+            break;
+        }
+    }
+}
+
 // ── usage ─────────────────────────────────────────────────────────────────────
 
 fn usage() {
     eprintln!("Usage: rwl msg <wm-command> [args…]");
     eprintln!("       rwl msg status [<output>]");
     eprintln!("       rwl msg subscribe [<output>]");
+    eprintln!("       rwl msg clients                         (JSON window list)");
+    eprintln!("       rwl msg watch [window,focus,tag,title]  (JSON event stream)");
     eprintln!("       rwl msg view [<output>] <tagmask>");
     eprintln!("       rwl msg toggleview [<output>] <tagmask>");
     eprintln!("       rwl msg setlayout [<output>] <index>");
@@ -176,7 +201,7 @@ fn run_wm(args: &[String]) {
 
     match cmd {
         // Queries — read response back from compositor.
-        "status" | "info" => {
+        "status" | "info" | "clients" => {
             wm_query(&args.join(" "));
         }
 
@@ -187,18 +212,18 @@ fn run_wm(args: &[String]) {
             } else {
                 "subscribe".to_owned()
             };
-            let Some(mut s) = wm_connect() else {
-                eprintln!("rwl msg: RWL_SOCK not set or compositor not running");
-                return;
+            wm_stream(&cmd_str);
+        }
+
+        // Watch: compositor pushes structured JSON events. Optional event-kind
+        // filter, e.g. `watch window focus`.
+        "watch" => {
+            let cmd_str = if args.len() >= 2 {
+                format!("watch {}", args[1..].join(" "))
+            } else {
+                "watch".to_owned()
             };
-            let _ = s.write_all(cmd_str.as_bytes());
-            let _ = s.shutdown(std::net::Shutdown::Write);
-            for line in std::io::BufReader::new(s).lines() {
-                match line {
-                    Ok(l) => println!("{l}"),
-                    Err(_) => break,
-                }
-            }
+            wm_stream(&cmd_str);
         }
 
         // Per-output commands: optional second arg is the output name.

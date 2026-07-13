@@ -31,6 +31,8 @@
 //! function on_layout_change(old, new) -- old/new are layout symbol names
 //! function on_monitor_add(name)     -- output plugged in (also the first one)
 //! function on_monitor_remove(name)  -- output unplugged
+//! function on_arrange(n, area)      -- user tiling for the "lua" layout kind;
+//!                                   -- returns n {x,y,w,h} rects (see lua_arrange)
 //! ```
 //!
 //! **Read helpers** query live compositor state at call time (they do not defer
@@ -342,6 +344,7 @@ const fn layout_kind_name(kind: LayoutKind) -> &'static str {
         LayoutKind::Bstack => "bstack",
         #[cfg(feature = "centeredmaster")]
         LayoutKind::CenteredMaster => "centeredmaster",
+        LayoutKind::Lua => "lua",
         #[cfg(not(any(
             feature = "tile",
             feature = "monocle",
@@ -353,6 +356,84 @@ const fn layout_kind_name(kind: LayoutKind) -> &'static str {
         )))]
         LayoutKind::Fallback => "default",
     }
+}
+
+/// Compute tiled-window geometries by calling the user's global `on_arrange`
+/// Lua callback — the implementation of the `"lua"` layout kind.
+///
+/// `on_arrange(n, area, symbol)` receives the tiled-window count `n`, an `area`
+/// table (`x`, `y`, `w`, `h` work-area rect plus the monitor's `mfact` and
+/// `nmaster`), and the active layout's `symbol` string — so one callback can back
+/// several `"lua"` layout entries by branching on their symbols. It must return an
+/// array of `n` `{ x, y, w, h }` rectangles in tiling order.
+/// Anything invalid (missing callback, Lua error, wrong element count) falls back
+/// to filling the work area for every window so a window is never lost. Values
+/// are read as numbers and rounded; widths/heights are clamped to at least 1px.
+///
+/// The returned rectangles are treated as **outer cells** (they may tile the work
+/// area edge-to-edge): each is inset by the border width so the border — drawn
+/// *outside* the window's content rect — stays on screen, matching the built-in
+/// layouts. A lone tiled window gets no border, also like the built-ins.
+#[allow(clippy::cast_possible_truncation, clippy::many_single_char_names)]
+pub fn lua_arrange(
+    monitor: &crate::monitor::Monitor,
+    cfacts: &[f64],
+) -> Vec<smithay::utils::Rectangle<i32, smithay::utils::Logical>> {
+    use smithay::utils::Rectangle;
+    let n = cfacts.len();
+    let area = monitor.w;
+    let fallback = || vec![area; n];
+
+    LUA.with(|cell| {
+        // try_borrow: never panic if the VM is somehow already borrowed.
+        let Ok(guard) = cell.try_borrow() else { return fallback() };
+        let Some(lua) = guard.as_ref() else { return fallback() };
+        let Ok(func) = lua.globals().get::<mlua::Function>("on_arrange") else {
+            return fallback();
+        };
+
+        let build_area = || -> mlua::Result<mlua::Table> {
+            let a = lua.create_table()?;
+            a.set("x", area.loc.x)?;
+            a.set("y", area.loc.y)?;
+            a.set("w", area.size.w)?;
+            a.set("h", area.size.h)?;
+            a.set("mfact", monitor.mfact)?;
+            a.set("nmaster", monitor.nmaster)?;
+            Ok(a)
+        };
+        let Ok(a) = build_area() else { return fallback() };
+
+        // The active layout's symbol lets one callback serve several `"lua"`
+        // layout entries (each config entry sets its own symbol).
+        let symbol = monitor.layout_symbol();
+        let ret: mlua::Result<mlua::Table> = func.call((n, a, symbol));
+        let Ok(tbl) = ret else {
+            tracing::warn!("[hook] on_arrange failed; filling work area");
+            return fallback();
+        };
+
+        // Reserve the border inside each returned cell so edge borders stay on
+        // screen (the border is drawn outside the content rect). No border for a
+        // lone tiled window, mirroring the built-in layouts.
+        let bw = if n > 1 {
+            i32::try_from(crate::config::get().border_px).unwrap_or(0)
+        } else {
+            0
+        };
+
+        let mut out = Vec::with_capacity(n);
+        for i in 1..=n {
+            let Ok(r) = tbl.get::<mlua::Table>(i) else { return fallback() };
+            let getf = |k: &str, d: i32| r.get::<f64>(k).map_or(d, |v| v.round() as i32);
+            let x = getf("x", area.loc.x) + bw;
+            let y = getf("y", area.loc.y) + bw;
+            let w = (getf("w", area.size.w) - 2 * bw).max(1);
+            let h = (getf("h", area.size.h) - 2 * bw).max(1);
+            out.push(Rectangle::new((x, y).into(), (w, h).into()));
+        }
+        out
+    })
 }
 
 // ---------------------------------------------------------------------------

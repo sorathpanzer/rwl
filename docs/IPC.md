@@ -33,6 +33,8 @@ error to stderr.
 |---------|------|--------|
 | `status` | `[<output>]` | Print current status once (see [format](#status-format)). Query. |
 | `subscribe` | `[<output>]` | Stream status on every state change until disconnect. |
+| `clients` | | Print a JSON array of all windows (see [structured events](#structured-events-clients--watch)). Query. |
+| `watch` | `[<kinds>]` | Stream newline-delimited JSON events until disconnect. Optional comma/space-separated kind filter. |
 | `view` | `[<output>] <tagmask>` | View the given tag mask. |
 | `toggleview` | `[<output>] <tagmask>` | Toggle a tag into/out of the view. |
 | `setlayout` | `[<output>] <index>` | Select a layout by index. |
@@ -98,6 +100,44 @@ Examples:
 rwl msg -status all "$(date '+%H:%M')"
 rwl msg -title eDP-1 5 '#ff5555' "Build finished"
 rwl msg -toggle-visibility all
+```
+
+---
+
+## Structured events (`clients` / `watch`)
+
+For scripting (window switchers, activity loggers, external panels), the socket
+also speaks JSON. Source: [`src/features/ipc/event.rs`](../src/features/ipc/event.rs).
+
+**`rwl msg clients`** prints a one-shot JSON array of every window:
+
+```json
+[{"app_id":"foot","title":"~","tags":2,"monitor":0,"floating":false,
+  "fullscreen":false,"focused":true,"x":0,"y":27,"w":960,"h":1053}, …]
+```
+
+**`rwl msg watch [kinds]`** streams newline-delimited JSON event objects, one per
+line, flushed immediately. With no argument every event is delivered; otherwise
+pass a comma/space-separated subset (e.g. `rwl msg watch window focus`).
+
+| Event kind | Shape |
+|------------|-------|
+| `window` | `{"event":"window","action":"open"\|"close","window":{…}}` |
+| `focus` | `{"event":"focus","window":{…}\|null}` |
+| `title` | `{"event":"title","window":{…}}` |
+| `tag` | `{"event":"tag","monitor":<i>,"selected":<mask>,"occupied":<mask>}` |
+
+The `window` object is the same shape emitted by `clients`. Example — a live
+window menu with `fuzzel`:
+
+```sh
+rwl msg clients | jq -r '.[] | "\(.tags)\t\(.title)"' | fuzzel --dmenu
+```
+
+```sh
+rwl msg watch focus | while read -r ev; do
+    echo "$ev" | jq -r '.window.app_id // "none"'
+done
 ```
 
 ---

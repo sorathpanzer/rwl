@@ -48,6 +48,11 @@ pub enum LayoutKind {
     Bstack,
     #[cfg(feature = "centeredmaster")]
     CenteredMaster,
+    /// A user-defined layout implemented in Lua via the global `on_arrange`
+    /// callback (see the `hooks` feature). Selected with `kind = "lua"`; its
+    /// symbol is whatever the `layouts` entry sets.
+    #[cfg(feature = "hooks")]
+    Lua,
     /// Built-in fallback used only when no layout feature is compiled in, so
     /// the compositor still tiles (every window gets the full work area).
     #[cfg(not(any(
@@ -278,6 +283,8 @@ pub const fn layout_kind_name(kind: LayoutKind) -> &'static str {
         LayoutKind::Bstack  => "bstack",
         #[cfg(feature = "centeredmaster")]
         LayoutKind::CenteredMaster => "centeredmaster",
+        #[cfg(feature = "hooks")]
+        LayoutKind::Lua => "lua",
         #[cfg(not(any(
             feature = "tile",
             feature = "monocle",

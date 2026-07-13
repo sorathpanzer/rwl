@@ -178,6 +178,11 @@ impl CompositorHandler for Rwl {
                 // profile-cond=not focused) see Activated before the enter.
                 let top = self.focused_window().cloned();
                 self.focus_window(top);
+                #[cfg(feature = "ipc")]
+                {
+                    let cw = w.clone();
+                    crate::features::ipc::event::window(self, "open", &cw);
+                }
             } else {
                 // Subsequent commits: check whether the initial configure has
                 // been sent.  This is a safety net for the rare case where

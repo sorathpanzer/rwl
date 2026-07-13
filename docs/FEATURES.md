@@ -58,6 +58,10 @@ the full work area so the compositor still tiles. `mfact` (master fraction) and
 `nmaster` (master count) are per-monitor and adjustable at runtime
 (`set_mfact`, `inc_nmaster`).
 
+With the `hooks` feature, a `lua` layout kind lets you write the tiling algorithm
+yourself in Lua via the global `on_arrange` callback — see
+[CONFIGURATION.md](CONFIGURATION.md#scriptable-layouts-on_arrange).
+
 Related: **`pertag-layouts`** assigns layouts per tag — fixed, or chosen by the
 live tiled-window count on that tag — see
 [`src/features/pertag_layouts.rs`](../src/features/pertag_layouts.rs) and
@@ -164,7 +168,11 @@ Configured via the `bar` table; controlled at runtime with the `-`-prefixed
 ### `ipc` (command socket)
 [`src/features/ipc/`](../src/features/ipc/) — binds `$XDG_RUNTIME_DIR/rwl.sock`,
 dispatches text commands to the compositor, and supports status subscribers. The
-`rwl msg` client lives in the same module. Full reference in [IPC.md](IPC.md).
+`rwl msg` client lives in the same module. It also exposes a **structured JSON
+surface** ([`event.rs`](../src/features/ipc/event.rs)): `rwl msg clients` dumps
+the window tree and `rwl msg watch` streams `window`/`focus`/`tag`/`title` events
+— enough to build external window switchers or activity loggers without any
+in-process UI. Full reference in [IPC.md](IPC.md).
 
 ### `hooks` (Lua event bus)
 [`src/features/hooks.rs`](../src/features/hooks.rs) — keeps the config Lua VM

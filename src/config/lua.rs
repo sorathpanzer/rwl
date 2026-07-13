@@ -447,6 +447,8 @@ fn parse_layout_kind(s: &str) -> Option<LayoutKind> {
         "bstack"   => Some(LayoutKind::Bstack),
         #[cfg(feature = "centeredmaster")]
         "centeredmaster" => Some(LayoutKind::CenteredMaster),
+        #[cfg(feature = "hooks")]
+        "lua"      => Some(LayoutKind::Lua),
         _          => None,
     }
 }

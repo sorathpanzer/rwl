@@ -278,6 +278,12 @@ pub struct Rwl {
     /// Each entry is `(stream, output_filter)`.  Dead streams are pruned on write error.
     #[cfg(feature = "ipc")]
     pub ipc_subscribers: Vec<(std::os::unix::net::UnixStream, Option<String>)>,
+    /// Persistent `watch` subscribers: clients streaming structured JSON events
+    /// (`rwl msg watch`). Each entry is `(stream, event_filter)`; a present filter
+    /// limits delivery to the listed event kinds. Dead streams are pruned on
+    /// write error. See [`crate::features::ipc::event`].
+    #[cfg(feature = "ipc")]
+    pub event_subscribers: Vec<(std::os::unix::net::UnixStream, Option<Vec<String>>)>,
     /// Set by the embedded bar thread when any bar has an active title notification
     /// (set via `rwl msg -title`). Read by the render loop to reveal the Top layer
     /// above fullscreen windows while the notification is on-screen.
@@ -541,6 +547,8 @@ impl Rwl {
             ipc_out: None,
             #[cfg(feature = "ipc")]
             ipc_subscribers: Vec::new(),
+            #[cfg(feature = "ipc")]
+            event_subscribers: Vec::new(),
             #[cfg(feature = "bar")]
             bar_has_notification: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             cursor_cache: {
@@ -1068,6 +1076,12 @@ impl Rwl {
             #[cfg(feature = "hooks")]
             if let Some(w) = self.focus_stack.first().cloned() {
                 crate::features::hooks::focus(self, &w);
+            }
+
+            #[cfg(feature = "ipc")]
+            {
+                let w = self.focus_stack.first().cloned();
+                crate::features::ipc::event::focus(self, w.as_ref());
             }
 
             let new_mon = self.focus_stack.first().and_then(|w| with_state(w, |s| s.mon_idx));
@@ -1831,6 +1845,10 @@ impl Rwl {
                 && let Some(title) = u.new_title.as_deref()
             {
                 crate::features::hooks::title_change(self, &u.window, title);
+            }
+            #[cfg(feature = "ipc")]
+            if u.update_title {
+                crate::features::ipc::event::title(self, &u.window);
             }
         }
         crate::ipc::print_status(self);

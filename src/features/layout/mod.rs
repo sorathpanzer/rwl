@@ -55,6 +55,8 @@ pub fn arrange(monitor: &Monitor, cfacts: &[f64]) -> Vec<Rectangle<i32, Logical>
         LayoutKind::Bstack  => bstack::arrange(monitor, cfacts),
         #[cfg(feature = "centeredmaster")]
         LayoutKind::CenteredMaster => centeredmaster::arrange(monitor, cfacts),
+        #[cfg(feature = "hooks")]
+        LayoutKind::Lua => crate::features::hooks::lua_arrange(monitor, cfacts),
         #[cfg(not(any(
             feature = "tile",
             feature = "monocle",

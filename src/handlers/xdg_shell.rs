@@ -239,6 +239,10 @@ impl XdgShellHandler for Rwl {
                 crate::features::hooks::window_close(self, &w);
                 crate::features::hooks::drain(self);
             }
+            #[cfg(feature = "ipc")]
+            if was_visible {
+                crate::features::ipc::event::window(self, "close", &w);
+            }
         }
 
         // Always re-focus and re-arrange so the layout is correct after removing

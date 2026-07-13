@@ -121,6 +121,25 @@ fn cmd_handle(mut stream: UnixStream, state: &mut Rwl) {
         return;
     }
 
+    // Watch: keep the stream alive and push structured JSON events. An optional
+    // comma/space-separated list restricts delivery to those event kinds.
+    if line == "watch" || line.starts_with("watch ") {
+        let rest = line["watch".len()..].trim();
+        let filter: Option<Vec<String>> = if rest.is_empty() {
+            None
+        } else {
+            Some(
+                rest.split([',', ' '])
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_owned)
+                    .collect(),
+            )
+        };
+        let _ = stream.set_nonblocking(true);
+        state.event_subscribers.push((stream, filter));
+        return;
+    }
+
     cmd_dispatch(line, &mut stream, state);
 }
 
@@ -150,6 +169,12 @@ fn cmd_dispatch(line: &str, stream: &mut UnixStream, state: &mut Rwl) {
                     .flat_map(|l| [l, "\n"])
                     .collect(),
             };
+            let _ = stream.write_all(out.as_bytes());
+        }
+
+        // ── window-tree query (JSON) ──────────────────────────────────────────
+        "clients" => {
+            let out = crate::features::ipc::event::clients_json(state);
             let _ = stream.write_all(out.as_bytes());
         }
 
@@ -250,6 +275,11 @@ fn cmd_dispatch(line: &str, stream: &mut UnixStream, state: &mut Rwl) {
             if affects_sel {
                 let top = state.focused_window().cloned();
                 state.focus_window(top);
+            }
+            if cmd == "view" || cmd == "toggleview" {
+                for &idx in &indices {
+                    crate::features::ipc::event::tag(state, idx);
+                }
             }
         }
 

@@ -153,6 +153,17 @@ Cargo feature): `tile` (`[]=`), `monocle` (`[M]`), `col` (`||`), `scroll`
 (`>>>`), `dwindle` (`[@]`), `bstack` (`(B)`), `centeredmaster` (`|-|`). See
 [FEATURES.md](FEATURES.md#tiling-layouts) for how each arranges windows.
 
+The special kind **`lua`** (`hooks` feature) runs your own tiling algorithm — the
+global `on_arrange` callback (see [Lua hooks](#lua-hooks)). Add it like any other
+layout and give it whatever `symbol` you like:
+
+```lua
+layouts = {
+  { symbol = "[]=", kind = "tile" },
+  { symbol = "[L]", kind = "lua" },
+}
+```
+
 ### Monitor rules
 
 Each `monitor_rules` entry (matched by `name`, or the default rule when unnamed):
@@ -438,6 +449,195 @@ The selected-monitor / focused-window helpers (`zoom`, `inc_nmaster`,
 keybinding. See
 [`src/features/hooks.rs`](../src/features/hooks.rs) for the full API and the
 `HookCmd` command set.
+
+### Scriptable layouts (`on_arrange`)
+
+Define a `lua` layout (see [Layouts](#layouts)) and rwl calls your global
+`on_arrange(n, area, symbol)` to place the `n` tiled windows:
+
+- **`n`** — the number of tiled windows (always ≥ 1 when called).
+- **`area`** — the work-area rectangle plus the monitor's master settings:
+  `{ x, y, w, h, mfact, nmaster }`. `mfact` (0.05–0.95) and `nmaster` follow the
+  usual `set_mfact` / `inc_nmaster` keybindings, so honouring them makes your
+  layout respond to them for free.
+- **`symbol`** — the active layout's symbol string (see *Multiple layouts* below).
+
+It must **return an array of `n` `{ x, y, w, h }` rectangles** in tiling order.
+Values are read as numbers and rounded. Anything invalid — a Lua error, the wrong
+element count, or no `on_arrange` at all — safely falls back to filling the work
+area, so a window is never lost.
+
+Things to know:
+
+- **Outer cells.** Tile the work area edge-to-edge; rwl reserves the border
+  *inside* each cell for you, so borders never spill off screen (a lone window
+  gets no border, like the built-in layouts). Do **not** subtract `border_px`
+  yourself. Want extra spacing? Inset each rect by some `g` of your own.
+- **Absolute coordinates.** `area` already excludes bars and exclusive
+  layer-shell zones and carries the monitor's `area.x`/`area.y`, so anchor rects
+  at `area.x`/`area.y` and a layout works unchanged on a second monitor.
+- **Hot path.** `on_arrange` runs on every re-arrange — keep it cheap and
+  side-effect-free (compute geometry; don't `spawn`/`view`). Floating and
+  fullscreen windows are handled by the compositor and never passed to it.
+- **Live editing.** Edit `on_arrange` and run `reload_config` (`M`+`r`) to apply
+  it without restarting.
+
+**Multiple layouts** all share the one `on_arrange`; branch on `symbol` to tell
+them apart (each `layouts` entry sets its own symbol):
+
+```lua
+layouts = {
+  { symbol = "[]=", kind = "tile" },   -- built-in
+  { symbol = "|||", kind = "lua" },    -- columns  (default below)
+  { symbol = "[M]", kind = "lua" },    -- master + stack
+  { symbol = "[G]", kind = "lua" },    -- grid
+  { symbol = "[@]", kind = "lua" },    -- spiral
+}
+
+function on_arrange(n, area, symbol)
+  if     symbol == "[M]" then return master_stack(n, area)
+  elseif symbol == "[G]" then return grid(n, area)
+  elseif symbol == "[@]" then return spiral(n, area)
+  else                        return columns(n, area) end
+end
+```
+
+#### Example layouts
+
+Each of these is a plain function you can drop in and wire up through the
+`on_arrange` dispatcher above.
+
+```lua
+-- Columns: n equal full-height columns, left to right.
+function columns(n, area)
+  local out, w = {}, math.floor(area.w / n)
+  for i = 1, n do
+    out[i] = { x = area.x + (i - 1) * w, y = area.y, w = w, h = area.h }
+  end
+  return out
+end
+
+-- Rows: n equal full-width rows, top to bottom.
+function rows(n, area)
+  local out, h = {}, math.floor(area.h / n)
+  for i = 1, n do
+    out[i] = { x = area.x, y = area.y + (i - 1) * h, w = area.w, h = h }
+  end
+  return out
+end
+
+-- Master + stack: the dwm classic. First `nmaster` windows share a master
+-- column of width `mfact`; the rest stack in the remaining column. Honours the
+-- live mfact / nmaster keybindings.
+function master_stack(n, area)
+  local out = {}
+  local nm = math.min(area.nmaster, n)
+  if nm == n then return columns_vertical(n, area) end       -- no stack yet
+  local mw = math.floor(area.w * area.mfact)
+  local sw, mh = area.w - mw, math.floor(area.h / nm)
+  local sh = math.floor(area.h / (n - nm))
+  for i = 1, n do
+    if i <= nm then
+      out[i] = { x = area.x, y = area.y + (i - 1) * mh, w = mw, h = mh }
+    else
+      local k = i - nm - 1
+      out[i] = { x = area.x + mw, y = area.y + k * sh, w = sw, h = sh }
+    end
+  end
+  return out
+end
+
+-- helper: stack all n windows in one full-width column (used above when
+-- everything is master).
+function columns_vertical(n, area)
+  local out, h = {}, math.floor(area.h / n)
+  for i = 1, n do
+    out[i] = { x = area.x, y = area.y + (i - 1) * h, w = area.w, h = h }
+  end
+  return out
+end
+
+-- Bottom-stack: master row on top (height `mfact`), stack row of columns below.
+function bstack(n, area)
+  local out = {}
+  local nm = math.min(area.nmaster, n)
+  if nm == n then return columns(n, area) end
+  local mh = math.floor(area.h * area.mfact)
+  local sh, mw = area.h - mh, math.floor(area.w / nm)
+  local sw = math.floor(area.w / (n - nm))
+  for i = 1, n do
+    if i <= nm then
+      out[i] = { x = area.x + (i - 1) * mw, y = area.y, w = mw, h = mh }
+    else
+      local k = i - nm - 1
+      out[i] = { x = area.x + k * sw, y = area.y + mh, w = sw, h = sh }
+    end
+  end
+  return out
+end
+
+-- Grid: near-square arrangement (row-major).
+function grid(n, area)
+  local cols = math.ceil(math.sqrt(n))
+  local rws  = math.ceil(n / cols)
+  local cw, ch = math.floor(area.w / cols), math.floor(area.h / rws)
+  local out = {}
+  for i = 1, n do
+    local c, r = (i - 1) % cols, math.floor((i - 1) / cols)
+    out[i] = { x = area.x + c * cw, y = area.y + r * ch, w = cw, h = ch }
+  end
+  return out
+end
+
+-- Spiral / fibonacci: each window takes half of the shrinking remainder,
+-- alternating vertical and horizontal splits.
+function spiral(n, area)
+  local out = {}
+  local x, y, w, h = area.x, area.y, area.w, area.h
+  for i = 1, n do
+    if i == n then
+      out[i] = { x = x, y = y, w = w, h = h }
+    elseif i % 2 == 1 then                 -- take the left half
+      local half = math.floor(w / 2)
+      out[i] = { x = x, y = y, w = half, h = h }
+      x, w = x + half, w - half
+    else                                   -- take the top half
+      local half = math.floor(h / 2)
+      out[i] = { x = x, y = y, w = w, h = half }
+      y, h = y + half, h - half
+    end
+  end
+  return out
+end
+
+-- Deck: one main window on top (`mfact` of the height), the rest as a strip of
+-- equal thumbnails along the bottom.
+function deck(n, area)
+  if n == 1 then
+    return { { x = area.x, y = area.y, w = area.w, h = area.h } }
+  end
+  local mh = math.floor(area.h * area.mfact)
+  local out = { { x = area.x, y = area.y, w = area.w, h = mh } }
+  local tw, th, ty = math.floor(area.w / (n - 1)), area.h - mh, area.y + mh
+  for i = 2, n do
+    out[i] = { x = area.x + (i - 2) * tw, y = ty, w = tw, h = th }
+  end
+  return out
+end
+
+-- Centered reading column: a single centred column of fixed max width, windows
+-- stacked; good for wide monitors.
+function centered(n, area)
+  local out = {}
+  local w = math.min(area.w, 1200)
+  local x = area.x + math.floor((area.w - w) / 2)
+  local h = math.floor(area.h / n)
+  for i = 1, n do
+    out[i] = { x = x, y = area.y + (i - 1) * h, w = w, h = h }
+  end
+  return out
+end
+```
 
 ---
 

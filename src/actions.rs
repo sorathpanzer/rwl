@@ -91,7 +91,7 @@ impl Rwl {
 
         // Snapshot the selected monitor's tags so any tag-changing action fires
         // on_tag_switch generically (no per-action wiring).
-        #[cfg(feature = "hooks")]
+        #[cfg(any(feature = "hooks", feature = "ipc"))]
         let tag_before = (self.sel_mon, self.sel_monitor().map(crate::monitor::Monitor::tags));
         // Likewise snapshot the active layout index so any layout-changing action
         // (or a per-tag layout that changes with the tag) fires on_layout_change.
@@ -336,6 +336,19 @@ impl Rwl {
                 && old != new
             {
                 crate::features::hooks::tag_switch(self, old, new);
+            }
+        }
+
+        // Emit a structured `tag` event if the selected monitor's tags changed.
+        #[cfg(feature = "ipc")]
+        {
+            let (mon_before, old_tags) = tag_before;
+            if mon_before == self.sel_mon
+                && let (Some(old), Some(new)) =
+                    (old_tags, self.sel_monitor().map(crate::monitor::Monitor::tags))
+                && old != new
+            {
+                crate::features::ipc::event::tag(self, mon_before);
             }
         }
 
