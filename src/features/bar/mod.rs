@@ -174,6 +174,10 @@ use text::CustomText;
 
 // ── Bar ───────────────────────────────────────────────────────────────────────
 
+/// Maximum number of run-prompt commands retained in a bar's history. Bounds
+/// `Bar::prompt_history` so it can't grow for the lifetime of the process.
+const PROMPT_HISTORY_CAP: usize = 100;
+
 #[allow(clippy::struct_excessive_bools)]
 struct Bar {
     wl_output: wl_output::WlOutput,
@@ -217,6 +221,21 @@ struct Bar {
     textpadding: u32,
     global_name: u32,
 
+    /// Persistent double-buffered SHM. One memfd holds two frame slots (slot `i`
+    /// at byte offset `i * bufsize`); `shm_pool` and both `buffers` are reused
+    /// across frames so a redraw need not allocate a fresh memfd/pool/buffer.
+    /// `pool_bufsize` records the `bufsize` they were built for; a size change
+    /// rebuilds them. `buffer_busy[i]` is set when slot `i` is attached and
+    /// cleared on its `wl_buffer.release`.
+    shm_fd:       Option<OwnedFd>,
+    shm_pool:     Option<wl_shm_pool::WlShmPool>,
+    buffers:      [Option<wl_buffer::WlBuffer>; 2],
+    buffer_busy:  [bool; 2],
+    pool_bufsize: usize,
+    /// Reused render scratch, resized to the current frame's pixel count so each
+    /// redraw reuses the allocation instead of allocating a fresh `Vec`.
+    scratch:      Vec<u32>,
+
     is_prompt_active: bool,
     prompt_buffer: String,
     was_hidden_before_prompt: bool,
@@ -245,6 +264,9 @@ impl Bar {
             hidden: cfg.hidden, bottom: cfg.bottom, redraw: false, dead: false,
             configured: false, width: 0, height,
             stride: 0, bufsize: 0, textpadding, global_name,
+            shm_fd: None, shm_pool: None,
+            buffers: [None, None], buffer_busy: [false, false],
+            pool_bufsize: 0, scratch: Vec::new(),
             is_prompt_active: false,
             prompt_buffer: String::new(),
             was_hidden_before_prompt: false,
@@ -255,6 +277,18 @@ impl Bar {
             history_index: None,
             history_temp_buffer: String::new(),
         }
+    }
+
+    /// Tear down the persistent double-buffered SHM (both `wl_buffer`s, the pool,
+    /// and the backing memfd). Called when the bar is hidden/removed, or by
+    /// [`State::ensure_bar_shm`] before rebuilding at a new size.
+    fn destroy_shm(&mut self) {
+        for buf in self.buffers.iter_mut().flatten() { buf.destroy(); }
+        self.buffers = [None, None];
+        self.buffer_busy = [false, false];
+        if let Some(pool) = self.shm_pool.take() { pool.destroy(); }
+        self.shm_fd = None;
+        self.pool_bufsize = 0;
     }
 }
 
@@ -381,6 +415,7 @@ impl State {
     fn hide_bar(&mut self, idx: usize) {
         let bar = &mut self.bars[idx];
         if bar.surface.is_none() { return; }
+        bar.destroy_shm();
         if let Some(ls) = bar.layer_surface.take() { ls.destroy(); }
         if let Some(s)  = bar.surface.take()       { s.destroy(); }
         bar.configured = false;
@@ -399,13 +434,91 @@ impl State {
     fn set_top(&mut self, idx: usize)    { self.bars[idx].bottom = false; self.reanchor(idx); }
     fn set_bottom(&mut self, idx: usize) { self.bars[idx].bottom = true;  self.reanchor(idx); }
 
-    fn draw_frame_with_qh(&self, idx: usize, qh: &QueueHandle<Self>) {
+    /// Ensure the bar has a double-buffered SHM pool matching its current size,
+    /// rebuilding it after a resize. Returns `false` (caller skips drawing) when
+    /// it can't be built: no `wl_shm`, zero size, or an allocation failure.
+    fn ensure_bar_shm(&mut self, idx: usize, qh: &QueueHandle<Self>) -> bool {
+        let bufsize = self.bars[idx].bufsize;
+        if bufsize == 0 { return false; }
+        if self.bars[idx].pool_bufsize == bufsize && self.bars[idx].shm_pool.is_some() {
+            return true;
+        }
+        // Size changed (or first build): drop any previous pool/buffers first.
+        self.bars[idx].destroy_shm();
+
+        // Two frame slots back-to-back in one memfd.
+        let Some(total) = bufsize.checked_mul(2) else { return false };
+        let fd = match allocate_shm_file(total as u64) {
+            Ok(fd) => fd,
+            Err(e) => { tracing::warn!("[bar] shm alloc: {e}"); return false; }
+        };
+        let Some(shm) = &self.shm else { return false };
+        #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+        let total_i32 = total as i32;
+        let pool = shm.create_pool(fd.as_fd(), total_i32, qh, ());
+
         let bar = &self.bars[idx];
-        if bar.surface.is_none() || !bar.configured { return; }
+        let (w, h, stride) = (bar.width.cast_signed(), bar.height.cast_signed(), bar.stride.cast_signed());
+        #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+        let slot_off = bufsize as i32;
+        let buf0 = pool.create_buffer(0,        w, h, stride, wl_shm::Format::Argb8888, qh, ());
+        let buf1 = pool.create_buffer(slot_off, w, h, stride, wl_shm::Format::Argb8888, qh, ());
 
-        let num_pixels = bar.bufsize / 4;
-        let mut pixels = vec![0u32; num_pixels];
+        let bar = &mut self.bars[idx];
+        bar.shm_fd = Some(fd);
+        bar.shm_pool = Some(pool);
+        bar.buffers = [Some(buf0), Some(buf1)];
+        bar.buffer_busy = [false, false];
+        bar.pool_bufsize = bufsize;
+        true
+    }
 
+    /// Attach `buffer` to `surface`, damage the whole bar, and commit.
+    fn attach_commit(
+        surface: &wl_surface::WlSurface, buffer: &wl_buffer::WlBuffer,
+        buffer_scale: u32, width: u32, height: u32,
+    ) {
+        surface.set_buffer_scale(buffer_scale.cast_signed());
+        surface.attach(Some(buffer), 0, 0);
+        surface.damage_buffer(0, 0, width.cast_signed(), height.cast_signed());
+        surface.commit();
+    }
+
+    /// Fallback used when both persistent slots are still held by the compositor:
+    /// allocate a one-off buffer for this frame. It is destroyed on its release
+    /// (it matches no persistent slot in the `wl_buffer` release handler).
+    fn build_throwaway_buffer(&self, idx: usize, bytes: &[u8], qh: &QueueHandle<Self>) -> Option<wl_buffer::WlBuffer> {
+        let bar = &self.bars[idx];
+        let fd: OwnedFd = match allocate_shm_file(bar.bufsize as u64) {
+            Ok(fd) => fd,
+            Err(e) => { tracing::warn!("[bar] shm alloc: {e}"); return None; }
+        };
+        if let Err(e) = write_all_fd(&fd, bytes) {
+            tracing::warn!("[bar] write pixels: {e}"); return None;
+        }
+        let shm = self.shm.as_ref()?;
+        #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+        let bufsize_i32 = bar.bufsize as i32;
+        let pool = shm.create_pool(fd.as_fd(), bufsize_i32, qh, ());
+        let buffer = pool.create_buffer(
+            0, bar.width.cast_signed(), bar.height.cast_signed(),
+            bar.stride.cast_signed(), wl_shm::Format::Argb8888, qh, (),
+        );
+        pool.destroy();
+        Some(buffer)
+    }
+
+    fn draw_frame_with_qh(&mut self, idx: usize, qh: &QueueHandle<Self>) {
+        if self.bars[idx].surface.is_none() || !self.bars[idx].configured { return; }
+        if !self.ensure_bar_shm(idx, qh) { return; }
+
+        // Render into the reused scratch buffer. Taken out by value so the render
+        // can read the bar's other fields without a borrow conflict; put back at
+        // the end so its allocation is reused next frame.
+        let mut scratch = std::mem::take(&mut self.bars[idx].scratch);
+        let num_pixels = self.bars[idx].bufsize / 4;
+        scratch.clear();
+        scratch.resize(num_pixels, 0);
         {
             let bar = &self.bars[idx];
             let now = std::time::Instant::now();
@@ -425,7 +538,7 @@ impl State {
                 }
             };
             let window_title = override_title.as_deref().or(bar.window_title.as_deref());
-            render_frame(&mut pixels, &BarDrawParams {
+            render_frame(&mut scratch, &BarDrawParams {
                 width: bar.width, height: bar.height,
                 stride: bar.stride,
                 textpadding: bar.textpadding,
@@ -438,43 +551,44 @@ impl State {
             });
         }
 
-        let fd: OwnedFd = match allocate_shm_file(self.bars[idx].bufsize as u64) {
-            Ok(fd) => fd,
-            Err(e) => { tracing::warn!("[bar] shm alloc: {e}"); return; }
-        };
+        let bufsize = self.bars[idx].bufsize;
+        let bytes: &[u8] = bytemuck::cast_slice(&scratch);
 
-        if let Err(e) = write_all_fd(&fd, bytemuck::cast_slice(&pixels)) {
-            tracing::warn!("[bar] write pixels: {e}"); return;
+        // Prefer a free persistent slot; if both are still busy, fall back to a
+        // one-off buffer so the frame isn't dropped.
+        match self.bars[idx].buffer_busy.iter().position(|&busy| !busy) {
+            Some(slot) => {
+                let offset = (slot * bufsize) as u64;
+                let wrote = self.bars[idx].shm_fd.as_ref().is_some_and(|fd|
+                    match pwrite_all_fd(fd, bytes, offset) {
+                        Ok(()) => true,
+                        Err(e) => { tracing::warn!("[bar] write pixels: {e}"); false }
+                    });
+                if wrote {
+                    self.bars[idx].buffer_busy[slot] = true;
+                    if let (Some(buffer), Some(surface)) =
+                        (self.bars[idx].buffers[slot].as_ref(), self.bars[idx].surface.as_ref())
+                    {
+                        Self::attach_commit(
+                            surface, buffer, self.cfg.buffer_scale,
+                            self.bars[idx].width, self.bars[idx].height,
+                        );
+                    }
+                }
+            }
+            None => {
+                if let Some(buffer) = self.build_throwaway_buffer(idx, bytes, qh)
+                    && let Some(surface) = self.bars[idx].surface.as_ref()
+                {
+                    Self::attach_commit(
+                        surface, &buffer, self.cfg.buffer_scale,
+                        self.bars[idx].width, self.bars[idx].height,
+                    );
+                }
+            }
         }
 
-        let Some(shm) = &self.shm else { return; };
-        let bar = &self.bars[idx];
-        #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
-        let bufsize_i32 = bar.bufsize as i32;
-        let pool = shm.create_pool(
-            fd.as_fd(),
-            bufsize_i32,
-            qh, (),
-        );
-        let buffer = pool.create_buffer(
-            0,
-            bar.width.cast_signed(),
-            bar.height.cast_signed(),
-            bar.stride.cast_signed(),
-            wl_shm::Format::Argb8888, qh, (),
-        );
-        pool.destroy();
-
-        if let Some(surface) = &self.bars[idx].surface {
-            surface.set_buffer_scale(self.cfg.buffer_scale.cast_signed());
-            surface.attach(Some(&buffer), 0, 0);
-            surface.damage_buffer(
-                0, 0,
-                self.bars[idx].width.cast_signed(),
-                self.bars[idx].height.cast_signed(),
-            );
-            surface.commit();
-        }
+        self.bars[idx].scratch = scratch;
     }
 
     fn setup_bar(&mut self, idx: usize, qh: &QueueHandle<Self>) {
@@ -555,8 +669,18 @@ impl Dispatch<wl_output::WlOutput, ()> for State {
     fn event(_: &mut Self, _: &wl_output::WlOutput, _: wl_output::Event, &(): &(), _: &Connection, _: &QueueHandle<Self>) {}
 }
 impl Dispatch<wl_buffer::WlBuffer, ()> for State {
-    fn event(_: &mut Self, buf: &wl_buffer::WlBuffer, event: wl_buffer::Event, &(): &(), _: &Connection, _: &QueueHandle<Self>) {
-        if matches!(event, wl_buffer::Event::Release) { buf.destroy(); }
+    fn event(state: &mut Self, buf: &wl_buffer::WlBuffer, event: wl_buffer::Event, &(): &(), _: &Connection, _: &QueueHandle<Self>) {
+        if !matches!(event, wl_buffer::Event::Release) { return; }
+        // A released persistent double-buffer slot is marked free for reuse;
+        // anything else (a throwaway fallback or a hover-widget buffer) is a
+        // one-off and gets destroyed.
+        for bar in &mut state.bars {
+            if let Some(slot) = bar.buffers.iter().position(|b| b.as_ref() == Some(buf)) {
+                bar.buffer_busy[slot] = false;
+                return;
+            }
+        }
+        buf.destroy();
     }
 }
 impl Dispatch<ZwlrLayerShellV1, ()> for State {
@@ -1001,6 +1125,12 @@ impl State {
                     command.spawn().ok();
                     if bar.prompt_history.last() != Some(&cmd) {
                         bar.prompt_history.push(cmd);
+                        // Cap the run history so it can't grow unbounded over the
+                        // process lifetime; drop the oldest entries past the limit.
+                        if bar.prompt_history.len() > PROMPT_HISTORY_CAP {
+                            let excess = bar.prompt_history.len() - PROMPT_HISTORY_CAP;
+                            bar.prompt_history.drain(..excess);
+                        }
                     }
                 }
                 bar.prompt_buffer.clear();
@@ -1259,6 +1389,20 @@ fn write_all_fd(fd: &OwnedFd, mut data: &[u8]) -> Result<(), rustix::io::Errno> 
     while !data.is_empty() {
         match rustix::io::write(fd, data) {
             Ok(n)            => data = &data[n..],
+            Err(Errno::INTR) => {}
+            Err(e)           => return Err(e),
+        }
+    }
+    Ok(())
+}
+
+/// Write all of `data` into `fd` starting at byte `offset`, so a specific
+/// double-buffer slot can be filled without disturbing the other slot.
+fn pwrite_all_fd(fd: &OwnedFd, mut data: &[u8], mut offset: u64) -> Result<(), rustix::io::Errno> {
+    while !data.is_empty() {
+        match rustix::io::pwrite(fd, data, offset) {
+            Ok(0)            => return Err(Errno::IO),
+            Ok(n)            => { data = &data[n..]; offset += n as u64; }
             Err(Errno::INTR) => {}
             Err(e)           => return Err(e),
         }

@@ -165,6 +165,13 @@ impl Rwl {
             self.space.unmap_output(output);
             self.update_monitor_bounds();
 
+            // Drop any gamma state keyed by the removed output. The per-resource
+            // destroy handler only fires when a client tears down its gamma
+            // control; an unplugged output would otherwise leave a stale ramp
+            // (and, via the Arc-backed Output key, pin the Output alive).
+            self.gamma_ramps.remove(output);
+            self.gamma_controls.remove(output);
+
             if idx < self.tag_history.len() {
                 self.tag_history.remove(idx);
             }
