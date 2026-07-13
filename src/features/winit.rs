@@ -117,22 +117,24 @@ pub fn init(
                     state.arrange_all();
                 }
                 WinitEvent::Input(event) => {
+                    // Update pointer/keyboard state, then request a redraw
+                    // instead of rendering synchronously here.
+                    //
+                    // Rendering to a Wayland EGL surface blocks on the host's
+                    // vsync (eglSwapBuffers waits for a free buffer, ~16 ms).
+                    // Rendering a full frame for *every* pointer-motion event
+                    // therefore serialises input behind the swap: a high-rate
+                    // mouse (1000 Hz) produces events far faster than 16 ms and
+                    // the queue backs up, so the cursor lags badly.
+                    //
+                    // request_redraw() is coalesced by winit — a whole burst of
+                    // motion between frames collapses into a single Redraw that
+                    // renders the latest pointer position.  Smithay's winit
+                    // source drains pending events in before_sleep and keeps
+                    // calloop awake while a RedrawRequested is queued, so this
+                    // reliably drives WinitEvent::Redraw without stalling.
                     state.process_input_event(event);
-                    // Render immediately after input so the cursor tracks
-                    // the pointer without waiting for the next Redraw event.
-                    // WinitEvent::Redraw relies on host-compositor events to
-                    // wake calloop; with few active clients those events are
-                    // sparse and the cursor appears to stall.
-                    let Some(crate::backend::BackendData::Winit(mut data)) =
-                        state.backend.take()
-                    else {
-                        return;
-                    };
-                    let any_fading = render_frame(&mut data, state);
-                    state.backend = Some(crate::backend::BackendData::Winit(data));
-                    if any_fading {
-                        state.schedule_render();
-                    }
+                    state.schedule_render();
                 }
                 WinitEvent::Redraw => {
                     // Temporarily take the backend data so we can borrow both it
@@ -151,7 +153,19 @@ pub fn init(
                 WinitEvent::CloseRequested => {
                     state.loop_signal.stop();
                 }
-                WinitEvent::Focus(_) => {}
+                WinitEvent::Focus(focused) => {
+                    // Smithay's winit backend does not forward CursorLeft, so a
+                    // window-focus change is our only signal that the pointer
+                    // has left the nested window.  When it leaves, the host
+                    // compositor draws its own cursor; hide our software cursor
+                    // so a stale copy isn't left frozen inside the window (a
+                    // double cursor).  It reappears on the next input event via
+                    // handle_cursor_activity().
+                    if !focused && !state.cursor_hidden {
+                        state.cursor_hidden = true;
+                        state.schedule_render();
+                    }
+                }
             }
         })
         .map_err(|e| RwlError::EventLoop(e.to_string()))?;

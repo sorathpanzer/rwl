@@ -1544,12 +1544,21 @@ fn run_event_loop(
             if let Some(guard) = read_guard
                 && let Err(e) = guard.read()
             {
-                let is_would_block = match &e {
-                    wayland_client::backend::WaylandError::Io(io_e) =>
-                        io_e.kind() == io::ErrorKind::WouldBlock,
-                    wayland_client::backend::WaylandError::Protocol(_) => false,
-                };
-                if !is_would_block { tracing::warn!("[bar] Wayland read: {e}"); break; }
+                match &e {
+                    // Nothing to read yet — normal, keep looping.
+                    wayland_client::backend::WaylandError::Io(io_e)
+                        if io_e.kind() == io::ErrorKind::WouldBlock => {}
+                    // Compositor closed the socket (it's shutting down).
+                    // This is an expected exit, not an error — leave quietly.
+                    wayland_client::backend::WaylandError::Io(io_e)
+                        if matches!(
+                            io_e.kind(),
+                            io::ErrorKind::BrokenPipe
+                                | io::ErrorKind::ConnectionReset
+                                | io::ErrorKind::UnexpectedEof
+                        ) => break,
+                    _ => { tracing::warn!("[bar] Wayland read: {e}"); break; }
+                }
             }
         } else {
             drop(read_guard);

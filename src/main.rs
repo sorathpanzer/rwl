@@ -41,7 +41,7 @@ fn main() {
     }
 
     let args = parse_args();
-    init_tracing(args.log_level);
+    init_tracing(args.log_filter);
     config::init();
 
     if let Err(e) = run(args.startup_cmd) {
@@ -281,13 +281,16 @@ fn run(startup_cmd: Option<String>) -> Result<()> {
 
 struct Args {
     startup_cmd: Option<String>,
-    log_level: tracing::Level,
+    log_filter: &'static str,
 }
 
 fn parse_args() -> Args {
     let mut args_iter = std::env::args().skip(1);
     let mut startup_cmd: Option<String> = None;
-    let mut log_level = tracing::Level::INFO;
+    // Default: rwl's own logs at INFO, dependencies (smithay's chatty EGL/GL
+    // extension dumps, per-context and keymap lines) silenced to WARN — clean,
+    // dwl-style output.  `-v` shows dependency INFO too; `-d` enables DEBUG.
+    let mut log_filter = "warn,rwl=info";
 
     while let Some(arg) = args_iter.next() {
         match arg.as_str() {
@@ -295,10 +298,10 @@ fn parse_args() -> Args {
                 startup_cmd = args_iter.next();
             }
             "-v" | "--verbose" => {
-                log_level = tracing::Level::INFO;
+                log_filter = "info";
             }
             "-d" | "--debug" => {
-                log_level = tracing::Level::DEBUG;
+                log_filter = "debug";
             }
             other => {
                 eprintln!("Unknown argument: {other}");
@@ -308,7 +311,7 @@ fn parse_args() -> Args {
         }
     }
 
-    Args { startup_cmd, log_level }
+    Args { startup_cmd, log_filter }
 }
 
 fn print_usage() {
@@ -322,11 +325,12 @@ fn print_usage() {
 // Tracing initialisation
 // ---------------------------------------------------------------------------
 
-fn init_tracing(level: tracing::Level) {
+fn init_tracing(default_filter: &str) {
     use tracing_subscriber::EnvFilter;
 
+    // RUST_LOG always wins; otherwise fall back to the CLI-derived default.
     let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new(level.as_str()));
+        .unwrap_or_else(|_| EnvFilter::new(default_filter));
 
     tracing_subscriber::fmt()
         .with_env_filter(filter)
