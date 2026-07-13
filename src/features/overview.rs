@@ -196,7 +196,9 @@ fn build_cells(
     work: Rectangle<i32, Logical>,
 ) -> Vec<OverviewCell> {
     // Candidate windows: mapped, and (unless all-tags) visible on the active tags.
-    let windows: Vec<Window> = state
+    // `state.windows` is already in master-to-stack tiling order, so keeping that
+    // order within each tag gives the desired master-first layout.
+    let mut windows: Vec<Window> = state
         .windows
         .iter()
         .filter(|w| with_state(w, |s| s.buffer_mapped).unwrap_or(false))
@@ -205,6 +207,15 @@ fn build_cells(
         .filter(|w| all_tags || window_visible_on(w, active_tags))
         .cloned()
         .collect();
+
+    // Order the grid by tag (1..N), then master-to-stack within each tag. A
+    // window's tag is its lowest set bit; the sort is stable so the existing
+    // `state.windows` order (master first) is preserved for windows on the same
+    // tag. Empty tag masks (0) sort last.
+    windows.sort_by_key(|w| {
+        let tags = window_tags(w);
+        if tags == 0 { u32::MAX } else { tags.trailing_zeros() }
+    });
 
     let n = windows.len();
     if n == 0 {
