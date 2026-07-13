@@ -93,6 +93,10 @@ impl Rwl {
         // on_tag_switch generically (no per-action wiring).
         #[cfg(feature = "hooks")]
         let tag_before = (self.sel_mon, self.sel_monitor().map(crate::monitor::Monitor::tags));
+        // Likewise snapshot the active layout index so any layout-changing action
+        // (or a per-tag layout that changes with the tag) fires on_layout_change.
+        #[cfg(feature = "hooks")]
+        let layout_before = (self.sel_mon, self.sel_monitor().map(crate::monitor::Monitor::layout_idx));
 
         match action {
             Action::Spawn(cmd) => self.spawn(cmd),
@@ -334,6 +338,20 @@ impl Rwl {
                 crate::features::hooks::tag_switch(self, old, new);
             }
         }
+
+        // Fire on_layout_change if the selected monitor's active layout changed
+        // (and we did not switch monitors).
+        #[cfg(feature = "hooks")]
+        {
+            let (mon_before, old_lt) = layout_before;
+            if mon_before == self.sel_mon
+                && let (Some(old), Some(new)) =
+                    (old_lt, self.sel_monitor().map(crate::monitor::Monitor::layout_idx))
+                && old != new
+            {
+                crate::features::hooks::layout_change(self, old, new);
+            }
+        }
     }
 
     /// Apply the standard child-process environment to `command`: the Wayland
@@ -510,6 +528,8 @@ impl Rwl {
             // arrange_all() sends the correct configure (with/without
             // Fullscreen state and the right size) in one shot.
             self.arrange_all();
+            #[cfg(feature = "hooks")]
+            crate::features::hooks::fullscreen(self, &w, new_fs);
         }
     }
 

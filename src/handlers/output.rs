@@ -81,6 +81,8 @@ impl Rwl {
         {
             let tags = self.sel_monitor().map_or(0, crate::monitor::Monitor::tags);
             crate::features::hooks::startup(self, tags);
+            // Fired after startup on the first output, and on every hotplug after.
+            crate::features::hooks::monitor_add(self, output.name().as_str());
         }
     }
 
@@ -184,6 +186,9 @@ impl Rwl {
             } else if self.sel_mon >= self.monitors.len() {
                 self.sel_mon = self.monitors.len() - 1;
             }
+
+            #[cfg(feature = "hooks")]
+            crate::features::hooks::monitor_remove(self, output.name().as_str());
         }
         self.arrange_all();
     }

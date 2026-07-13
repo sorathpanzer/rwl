@@ -107,6 +107,15 @@ impl Monitor {
     /// Falls back to [`default_layout_kind`](crate::config::default_layout_kind)
     /// when the stored index is no longer valid after a `ReloadConfig` that
     /// shrinks the layouts list.
+    /// Index (into the configured `layouts` list) of the active layout. Used to
+    /// detect layout changes for the `on_layout_change` hook.
+    #[cfg(feature = "hooks")]
+    #[inline]
+    #[must_use]
+    pub const fn layout_idx(&self) -> usize {
+        self.lt[self.sel_lt]
+    }
+
     #[inline]
     #[must_use]
     pub fn layout_kind(&self) -> LayoutKind {

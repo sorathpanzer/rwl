@@ -345,8 +345,18 @@ function on_window_close(win) end   -- window just left the layout
 function on_tag_switch(old, new) end -- also fired once at startup (old == 0)
 function on_focus(win) end
 function on_title_change(win, title) end
-function on_startup() end            -- fired once, after the first output
+function on_fullscreen(win, fs) end   -- fs is a bool; user/client-initiated only
+function on_layout_change(old, new) end -- old/new are layout symbol names
+function on_monitor_add(name) end     -- output plugged in (also the first one)
+function on_monitor_remove(name) end  -- output unplugged
+function on_startup() end             -- fired once, after the first output
 ```
+
+`on_fullscreen` fires only for user- or client-initiated fullscreen changes, not
+for `win:set_fullscreen()` calls made from Lua (to avoid feedback loops).
+`on_layout_change` also fires when a per-tag layout changes as a side effect of
+switching tags. `on_monitor_add` fires after `on_startup` for the first output,
+and on every hotplug thereafter.
 
 `on_tag_switch` is also fired once at startup with `old == 0` and `new` set to
 the launch tag, so per-tag state (such as a wallpaper) is applied immediately
@@ -396,21 +406,36 @@ end
 does not change what is on screen. Cached images (whether preloaded or shown
 once) are reused, so a tag revisit never re-decodes.
 
-**Read helpers** query live state at call time:
+**Read helpers** query live state at call time (answered from a snapshot taken
+right before the callback fires):
 
 - `rwl.count(mask)` — how many windows on the selected monitor carry any tag in
   `mask`.
 - `rwl.tag(n)` — the bitmask for tag `n`.
-- `win:tags()` — a window's tag bitmask.
-- `win:app_id()` — a window's app-id.
+- `rwl.clients()` — array of window handles visible on the current tagset.
+- `rwl.focused()` — the focused window handle, or `nil`.
+- `rwl.sel_tags()` — the selected monitor's active tag bitmask.
+- `rwl.layout()` — the selected monitor's layout symbol name (or `nil`).
+- `rwl.monitors()` — number of connected monitors.
+- `win:app_id()`, `win:title()`, `win:tags()`, `win:is_floating()`,
+  `win:is_fullscreen()`, `win:monitor()` — per-window state.
 
-**Action helpers** (`rwl.set_layout(name_or_index)`, `rwl.notify(text)`,
-`rwl.set_wallpaper(path[, mode])` and `rwl.preload(path)` (`wallpaper` feature;
-nil path clears it), `win:set_floating(bool)`, …) do **not** mutate compositor
-state synchronously —
+**Action helpers** do **not** mutate compositor state synchronously —
 they enqueue a command that is applied at a safe point (right after the callback
 returns, and once per event-loop iteration). This avoids re-entering the
-`&mut Rwl` borrow that is running the event. See
+`&mut Rwl` borrow that is running the event.
+
+- `rwl` table: `spawn`, `view`, `toggle_view(mask)`, `set_layout(name_or_index)`,
+  `zoom()`, `inc_nmaster(delta)`, `set_mfact(delta)`, `focus_monitor(dir)`,
+  `notify(text)`, `set_wallpaper(path[, mode])` / `preload(path)` (`wallpaper`
+  feature; a nil path clears it).
+- `win` handle: `set_tags(mask)`, `toggle_tag(mask)`, `set_floating(bool)`,
+  `set_fullscreen(bool)`, `focus()`, `close()`, `move_to_monitor(dir)`,
+  `warp()` (`warp` feature), `set_scratch(key)` (`scratchpad` feature).
+
+The selected-monitor / focused-window helpers (`zoom`, `inc_nmaster`,
+`set_mfact`, `focus_monitor`, `toggle_view`) act exactly like the matching
+keybinding. See
 [`src/features/hooks.rs`](../src/features/hooks.rs) for the full API and the
 `HookCmd` command set.
 

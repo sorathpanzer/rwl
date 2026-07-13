@@ -27,13 +27,28 @@
 //! end
 //! function on_focus(win)            -- ...
 //! function on_title_change(win, t)  -- ...
+//! function on_fullscreen(win, fs)   -- fs is a bool; user/client-initiated
+//! function on_layout_change(old, new) -- old/new are layout symbol names
+//! function on_monitor_add(name)     -- output plugged in (also the first one)
+//! function on_monitor_remove(name)  -- output unplugged
 //! ```
 //!
-//! Two read helpers query live compositor state at call time (they do not defer
-//! through the command queue): `rwl.count(mask)` returns how many windows on the
-//! selected monitor carry any tag in `mask`, and `win:tags()` reports a window's
-//! tag bitmask. `rwl.set_layout(name_or_index)` switches the selected monitor's
-//! layout (by symbol name like `"tile"` / `"col"`, or by raw index).
+//! **Read helpers** query live compositor state at call time (they do not defer
+//! through the command queue); they answer from a snapshot taken right before
+//! the callback fires. On the `rwl` table: `rwl.count(mask)` (windows carrying
+//! any tag in `mask`), `rwl.clients()` (array of window handles on the current
+//! tagset), `rwl.focused()` (the focused window or nil), `rwl.sel_tags()`,
+//! `rwl.layout()` (layout symbol name), `rwl.monitors()` (monitor count). On a
+//! window handle: `win:app_id()`, `win:title()`, `win:tags()`,
+//! `win:is_floating()`, `win:is_fullscreen()`, `win:monitor()`.
+//!
+//! **Action helpers** mutate the compositor and therefore defer through the
+//! queue. On the `rwl` table: `rwl.spawn`, `rwl.view`, `rwl.toggle_view`,
+//! `rwl.set_layout` (name or index), `rwl.zoom`, `rwl.inc_nmaster`,
+//! `rwl.set_mfact`, `rwl.focus_monitor`, `rwl.set_wallpaper`, `rwl.notify`. On a
+//! window handle: `win:set_tags`, `win:toggle_tag`, `win:set_floating`,
+//! `win:set_fullscreen`, `win:focus`, `win:close`, `win:move_to_monitor`,
+//! `win:warp`, `win:set_scratch`.
 //!
 //! Callbacks act on the compositor through a **command queue**: `rwl.*` helpers
 //! and `win:*` action methods do not mutate compositor state directly (that
@@ -47,13 +62,36 @@
 use std::cell::{Cell, RefCell};
 
 use mlua::{Lua, UserData, UserDataMethods, Variadic};
+
 use smithay::desktop::Window;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::wayland::seat::WaylandFocus;
 
 use crate::config::{Action, LayoutKind};
 use crate::state::Rwl;
-use crate::window::{window_is_floating, window_tags, with_state};
+use crate::window::{
+    set_fullscreen, set_window_tags, window_is_floating, window_is_fullscreen, window_tags,
+    with_state, with_state_mut,
+};
+
+/// Snapshot of selected-monitor state taken by [`refresh`] right before each
+/// hook fires, so the `rwl.*` read helpers can answer synchronously without a
+/// live `&Rwl` inside the Lua closure.
+#[derive(Default)]
+struct Snapshot {
+    /// Tag bitmask of every window on the selected monitor (backs `rwl.count`).
+    tags: Vec<u32>,
+    /// Windows visible on the selected monitor's current tagset (`rwl.clients`).
+    clients: Vec<Window>,
+    /// The focused window at fire time (`rwl.focused`).
+    focused: Option<Window>,
+    /// Selected monitor's active tag bitmask (`rwl.sel_tags`).
+    sel_tags: u32,
+    /// Selected monitor's layout symbol name (`rwl.layout`).
+    layout: Option<String>,
+    /// Number of connected monitors (`rwl.monitors`).
+    monitors: usize,
+}
 
 thread_local! {
     /// The persistent config Lua VM (holds the user's hook functions).
@@ -66,10 +104,19 @@ thread_local! {
     /// Surface of the last window `on_focus` fired for, to de-duplicate the many
     /// `focus_window` calls that don't actually change the focused client.
     static LAST_FOCUS: RefCell<Option<WlSurface>> = const { RefCell::new(None) };
-    /// Tag bitmask of every window on the selected monitor, refreshed by
-    /// [`refresh`] right before each hook fires so `rwl.count(mask)` can answer
-    /// synchronously without a live `&Rwl` inside the Lua closure.
-    static SNAPSHOT: RefCell<Vec<u32>> = const { RefCell::new(Vec::new()) };
+    /// Selected-monitor snapshot, refreshed by [`refresh`] right before each hook
+    /// fires so the `rwl.*` read helpers can answer synchronously without a live
+    /// `&Rwl` inside the Lua closure.
+    static SNAPSHOT: RefCell<Snapshot> = const {
+        RefCell::new(Snapshot {
+            tags: Vec::new(),
+            clients: Vec::new(),
+            focused: None,
+            sel_tags: 0,
+            layout: None,
+            monitors: 0,
+        })
+    };
     /// Set once [`startup`] has fired, so the startup hooks run a single time per
     /// process (not again on hotplug or config reload).
     static STARTUP_DONE: Cell<bool> = const { Cell::new(false) };
@@ -89,6 +136,23 @@ enum HookCmd {
     Focus(Window),
     Close(Window),
     SetLayout(usize),
+    /// Route an existing keybinding [`Action`] through `dispatch` — used for the
+    /// selected-monitor / focused-window helpers (`zoom`, `inc_nmaster`,
+    /// `set_mfact`, `focus_monitor`, `toggle_view`). Only safe, non-destructive
+    /// actions are ever constructed here.
+    Dispatch(Action),
+    /// Set the given window's fullscreen state.
+    SetFullscreen(Window, bool),
+    /// Toggle the given tag bits on the window (never leaving it tagless).
+    ToggleTags(Window, u32),
+    /// Move the given window to the monitor `dir` steps away.
+    MoveToMonitor(Window, i32),
+    /// Focus the given window and warp the pointer onto it.
+    #[cfg(feature = "warp")]
+    Warp(Window),
+    /// Mark (or, with `'\0'`, unmark) the window as a scratchpad under `key`.
+    #[cfg(feature = "scratchpad")]
+    SetScratch(Window, char),
     /// Set (or, with a `None` path, clear) the desktop wallpaper. `None` mode
     /// keeps the current fit mode.
     #[cfg(feature = "wallpaper")]
@@ -162,6 +226,54 @@ fn apply(state: &mut Rwl, cmd: HookCmd) {
             }
         }
         HookCmd::SetLayout(idx) => state.dispatch(&Action::SetLayout(idx)),
+        HookCmd::Dispatch(action) => state.dispatch(&action),
+        HookCmd::SetFullscreen(window, fs) => {
+            if state.windows.contains(&window) {
+                set_fullscreen(&window, fs);
+                // arrange_all() sends the configure with the right size and the
+                // correct (Un)Fullscreen state in one shot.
+                state.arrange_all();
+            }
+        }
+        HookCmd::ToggleTags(window, mask) => {
+            let mask = mask & crate::config::tag_mask();
+            if mask != 0 && state.windows.contains(&window) {
+                let next = (window_tags(&window) ^ mask) & crate::config::tag_mask();
+                // Mirror dwm's toggletag guard: never strand a window on no tags.
+                if next != 0 {
+                    set_window_tags(&window, next);
+                    state.arrange_all();
+                    let top = state.focused_window().cloned();
+                    state.focus_window(top);
+                }
+            }
+        }
+        HookCmd::MoveToMonitor(window, dir) => {
+            if state.windows.contains(&window) {
+                let from = with_state(&window, |s| s.mon_idx).unwrap_or(state.sel_mon);
+                if let Some(next) = state.dir_to_monitor(from, dir) {
+                    let new_tags = state.monitors.get(next).map_or(1, crate::monitor::Monitor::tags);
+                    set_window_tags(&window, new_tags);
+                    with_state_mut(&window, |s| s.mon_idx = next);
+                    state.arrange_all();
+                    let top = state.focused_window().cloned();
+                    state.focus_window(top);
+                }
+            }
+        }
+        #[cfg(feature = "warp")]
+        HookCmd::Warp(window) => {
+            if state.windows.contains(&window) {
+                state.focus_window(Some(window));
+                crate::features::warp::warp_cursor_to_focused(state);
+            }
+        }
+        #[cfg(feature = "scratchpad")]
+        HookCmd::SetScratch(window, key) => {
+            if state.windows.contains(&window) {
+                with_state_mut(&window, |s| s.scratch_key = key);
+            }
+        }
         #[cfg(feature = "wallpaper")]
         HookCmd::SetWallpaper(path, mode) => {
             crate::features::wallpaper::set_override(path, mode);
@@ -174,18 +286,32 @@ fn apply(state: &mut Rwl, cmd: HookCmd) {
 // Live-state snapshot (for the synchronous `rwl.count` read helper)
 // ---------------------------------------------------------------------------
 
-/// Refresh [`SNAPSHOT`] with the tag bitmask of every window on the selected
-/// monitor. Called by the fire helpers before invoking a callback so that
-/// `rwl.count(mask)` reflects the compositor state at the moment the hook runs.
+/// Refresh [`SNAPSHOT`] with the selected monitor's live state. Called by the
+/// fire helpers before invoking a callback so the `rwl.*` read helpers reflect
+/// the compositor state at the moment the hook runs.
 pub fn refresh(state: &Rwl) {
+    let sel = state.sel_mon;
+    let sel_tags = state.monitors.get(sel).map_or(0, crate::monitor::Monitor::tags);
     SNAPSHOT.with(|snap| {
         let mut snap = snap.borrow_mut();
-        snap.clear();
+        snap.tags.clear();
+        snap.clients.clear();
         for w in &state.windows {
-            if with_state(w, |s| s.mon_idx).unwrap_or(0) == state.sel_mon {
-                snap.push(window_tags(w));
+            if with_state(w, |s| s.mon_idx).unwrap_or(0) == sel {
+                let tags = window_tags(w);
+                snap.tags.push(tags);
+                if tags & sel_tags != 0 {
+                    snap.clients.push(w.clone());
+                }
             }
         }
+        snap.focused = state.focused_window().cloned();
+        snap.sel_tags = sel_tags;
+        snap.layout = state
+            .monitors
+            .get(sel)
+            .map(|m| layout_kind_name(m.layout_kind()).to_owned());
+        snap.monitors = state.monitors.len();
     });
 }
 
@@ -248,6 +374,11 @@ impl UserData for LuaWindow {
         });
         methods.add_method("tags", |_, this, ()| Ok(window_tags(&this.0)));
         methods.add_method("is_floating", |_, this, ()| Ok(window_is_floating(&this.0)));
+        methods.add_method("is_fullscreen", |_, this, ()| Ok(window_is_fullscreen(&this.0)));
+        // 0-based monitor index this window lives on, or nil if untracked.
+        methods.add_method("monitor", |_, this, ()| {
+            Ok(with_state(&this.0, |s| i64::try_from(s.mon_idx).unwrap_or(0)))
+        });
 
         methods.add_method("set_tags", |_, this, mask: u32| {
             enqueue(HookCmd::SetTags(this.0.clone(), mask));
@@ -265,6 +396,29 @@ impl UserData for LuaWindow {
             enqueue(HookCmd::Close(this.0.clone()));
             Ok(())
         });
+        methods.add_method("set_fullscreen", |_, this, fs: bool| {
+            enqueue(HookCmd::SetFullscreen(this.0.clone(), fs));
+            Ok(())
+        });
+        methods.add_method("toggle_tag", |_, this, mask: u32| {
+            enqueue(HookCmd::ToggleTags(this.0.clone(), mask));
+            Ok(())
+        });
+        methods.add_method("move_to_monitor", |_, this, dir: i32| {
+            enqueue(HookCmd::MoveToMonitor(this.0.clone(), dir));
+            Ok(())
+        });
+        #[cfg(feature = "warp")]
+        methods.add_method("warp", |_, this, ()| {
+            enqueue(HookCmd::Warp(this.0.clone()));
+            Ok(())
+        });
+        #[cfg(feature = "scratchpad")]
+        methods.add_method("set_scratch", |_, this, key: String| {
+            let key = key.chars().next().unwrap_or('\0');
+            enqueue(HookCmd::SetScratch(this.0.clone(), key));
+            Ok(())
+        });
     }
 }
 
@@ -274,6 +428,7 @@ impl UserData for LuaWindow {
 
 /// Register the global `rwl` helper table in `lua`. Must run **before** the
 /// config source is executed so callbacks can reference `rwl.*`.
+#[allow(clippy::too_many_lines)]
 pub fn setup(lua: &Lua) -> mlua::Result<()> {
     let rwl = lua.create_table()?;
 
@@ -309,7 +464,8 @@ pub fn setup(lua: &Lua) -> mlua::Result<()> {
         "count",
         lua.create_function(|_, mask: Option<u32>| {
             let mask = mask.filter(|&m| m != 0).unwrap_or(u32::MAX);
-            let n = SNAPSHOT.with(|s| s.borrow().iter().filter(|&&t| t & mask != 0).count());
+            let n = SNAPSHOT
+                .with(|s| s.borrow().tags.iter().filter(|&&t| t & mask != 0).count());
             Ok(i64::try_from(n).unwrap_or(i64::MAX))
         })?,
     )?;
@@ -327,6 +483,90 @@ pub fn setup(lua: &Lua) -> mlua::Result<()> {
                 enqueue(HookCmd::SetLayout(idx));
             }
             Ok(())
+        })?,
+    )?;
+
+    // Selected-monitor / focused-window actions — route straight through
+    // `dispatch`, so they behave exactly like the equivalent keybinding.
+    rwl.set(
+        "zoom",
+        lua.create_function(|_, ()| {
+            enqueue(HookCmd::Dispatch(Action::Zoom));
+            Ok(())
+        })?,
+    )?;
+    rwl.set(
+        "inc_nmaster",
+        lua.create_function(|_, delta: i32| {
+            enqueue(HookCmd::Dispatch(Action::IncNmaster(delta)));
+            Ok(())
+        })?,
+    )?;
+    rwl.set(
+        "set_mfact",
+        lua.create_function(|_, delta: f64| {
+            enqueue(HookCmd::Dispatch(Action::SetMfact(delta)));
+            Ok(())
+        })?,
+    )?;
+    rwl.set(
+        "focus_monitor",
+        lua.create_function(|_, dir: i32| {
+            enqueue(HookCmd::Dispatch(Action::FocusMon(dir)));
+            Ok(())
+        })?,
+    )?;
+    // rwl.toggle_view(mask): add/remove tags from the selected monitor's view.
+    rwl.set(
+        "toggle_view",
+        lua.create_function(|_, mask: u32| {
+            let mask = mask & crate::config::tag_mask();
+            if mask != 0 {
+                enqueue(HookCmd::Dispatch(Action::ToggleView(mask)));
+            }
+            Ok(())
+        })?,
+    )?;
+
+    // Read helpers — snapshots of selected-monitor state at hook-fire time (see
+    // [`refresh`]). They never defer through the queue.
+    // rwl.focused(): the focused window handle, or nil.
+    rwl.set(
+        "focused",
+        lua.create_function(|lua, ()| {
+            match SNAPSHOT.with(|s| s.borrow().focused.clone()) {
+                Some(w) => Ok(mlua::Value::UserData(lua.create_userdata(LuaWindow(w))?)),
+                None => Ok(mlua::Value::Nil),
+            }
+        })?,
+    )?;
+    // rwl.clients(): array of window handles visible on the current tagset.
+    rwl.set(
+        "clients",
+        lua.create_function(|lua, ()| {
+            let ws = SNAPSHOT.with(|s| s.borrow().clients.clone());
+            let t = lua.create_table()?;
+            for (i, w) in ws.into_iter().enumerate() {
+                t.set(i + 1, lua.create_userdata(LuaWindow(w))?)?;
+            }
+            Ok(t)
+        })?,
+    )?;
+    // rwl.sel_tags(): the selected monitor's active tag bitmask.
+    rwl.set(
+        "sel_tags",
+        lua.create_function(|_, ()| Ok(SNAPSHOT.with(|s| s.borrow().sel_tags)))?,
+    )?;
+    // rwl.layout(): the selected monitor's current layout symbol name, or nil.
+    rwl.set(
+        "layout",
+        lua.create_function(|_, ()| Ok(SNAPSHOT.with(|s| s.borrow().layout.clone())))?,
+    )?;
+    // rwl.monitors(): number of connected monitors.
+    rwl.set(
+        "monitors",
+        lua.create_function(|_, ()| {
+            Ok(i64::try_from(SNAPSHOT.with(|s| s.borrow().monitors)).unwrap_or(i64::MAX))
         })?,
     )?;
 
@@ -491,4 +731,78 @@ pub fn title_change(state: &Rwl, window: &Window, title: &str) {
             Err(e) => tracing::warn!("[hook] on_title_change userdata: {e}"),
         }
     });
+}
+
+/// The layout symbol name at index `idx` in the configured `layouts` list, or an
+/// empty string if the index is out of range.
+fn layout_name(idx: usize) -> String {
+    crate::config::get()
+        .layouts
+        .get(idx)
+        .map_or_else(String::new, |l| layout_kind_name(l.kind).to_owned())
+}
+
+/// Fire `on_layout_change(old_name, new_name)` with the selected monitor's layout
+/// symbol names (e.g. `"tile"`, `"col"`). Fired generically from `dispatch`
+/// whenever the active layout index changes (including a per-tag layout that
+/// changes as a side effect of switching tags).
+pub fn layout_change(state: &Rwl, old_idx: usize, new_idx: usize) {
+    refresh(state);
+    let (old, new) = (layout_name(old_idx), layout_name(new_idx));
+    LUA.with(|cell| {
+        let guard = cell.borrow();
+        let Some(lua) = guard.as_ref() else { return };
+        let Ok(func) = lua.globals().get::<mlua::Function>("on_layout_change") else { return };
+        if let Err(e) = func.call::<()>((old, new)) {
+            tracing::warn!("[hook] on_layout_change: {e}");
+        }
+    });
+}
+
+/// Fire `on_fullscreen(win, is_fullscreen)` when a window's fullscreen state is
+/// toggled by the user or the client. Not fired for `win:set_fullscreen` calls
+/// made from Lua itself (which would risk a feedback loop).
+pub fn fullscreen(state: &Rwl, window: &Window, is_fullscreen: bool) {
+    refresh(state);
+    let window = window.clone();
+    LUA.with(|cell| {
+        let guard = cell.borrow();
+        let Some(lua) = guard.as_ref() else { return };
+        let Ok(func) = lua.globals().get::<mlua::Function>("on_fullscreen") else { return };
+        match lua.create_userdata(LuaWindow(window)) {
+            Ok(ud) => {
+                if let Err(e) = func.call::<()>((ud, is_fullscreen)) {
+                    tracing::warn!("[hook] on_fullscreen: {e}");
+                }
+            }
+            Err(e) => tracing::warn!("[hook] on_fullscreen userdata: {e}"),
+        }
+    });
+}
+
+/// Call a global Lua function that takes a single string argument, if defined.
+fn fire_named(hook: &str, name: &str) {
+    let name = name.to_owned();
+    LUA.with(|cell| {
+        let guard = cell.borrow();
+        let Some(lua) = guard.as_ref() else { return };
+        let Ok(func) = lua.globals().get::<mlua::Function>(hook) else { return };
+        if let Err(e) = func.call::<()>(name) {
+            tracing::warn!("[hook] {hook}: {e}");
+        }
+    });
+}
+
+/// Fire `on_monitor_add(name)` after an output has been added (including the
+/// first one at startup) — `name` is the connector/output name.
+pub fn monitor_add(state: &Rwl, name: &str) {
+    refresh(state);
+    fire_named("on_monitor_add", name);
+}
+
+/// Fire `on_monitor_remove(name)` after an output has been unplugged/removed and
+/// its windows migrated to a surviving monitor.
+pub fn monitor_remove(state: &Rwl, name: &str) {
+    refresh(state);
+    fire_named("on_monitor_remove", name);
 }

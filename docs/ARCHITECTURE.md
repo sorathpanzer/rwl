@@ -200,12 +200,15 @@ Two related but distinct mechanisms:
 
 [`src/features/hooks.rs`](../src/features/hooks.rs) keeps the config Lua VM alive
 after loading so user callbacks (`on_window_open`, `on_window_close`,
-`on_tag_switch`, `on_focus`, `on_title_change`) can fire on compositor events.
-Because a callback runs *inside* the `&mut Rwl` borrow that raised the event, the
-`rwl.*` / `win:*` action helpers do not mutate state directly — they enqueue a
-`HookCmd`, and `drain()` applies the queue at a safe point (right after firing,
-and once per loop iteration from `main.rs`). A couple of read-only helpers
-(`rwl.count(mask)`, `win:tags()`) query live state at call time. See
+`on_tag_switch`, `on_focus`, `on_title_change`, `on_fullscreen`,
+`on_layout_change`, `on_monitor_add`, `on_monitor_remove`, `on_startup`) can fire
+on compositor events. Because a callback runs *inside* the `&mut Rwl` borrow that
+raised the event, the `rwl.*` / `win:*` action helpers do not mutate state
+directly — they enqueue a `HookCmd`, and `drain()` applies the queue at a safe
+point (right after firing, and once per loop iteration from `main.rs`). Read-only
+helpers (`rwl.count`, `rwl.clients`, `rwl.focused`, `win:tags`, …) instead answer
+from a `Snapshot` of the selected monitor that `refresh()` captures just before
+each callback fires, so no live `&Rwl` is needed inside the closure. See
 [`CONFIGURATION.md`](CONFIGURATION.md#lua-hooks) for the API.
 
 ## Wayland protocols

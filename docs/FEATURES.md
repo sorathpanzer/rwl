@@ -13,7 +13,7 @@ The `default` feature set enables all of the following:
 tile monocle scratchpad col scroll dwindle bstack centeredmaster
 bar ipc winit rounded-corners gaps warp fade tag-transition
 pertag-layouts startup-cmds auto-back-empty-tag overview hooks pip
-mod-tap lock
+mod-tap lock wallpaper
 ```
 
 Build a subset with, e.g.:
@@ -31,6 +31,7 @@ Smithay features:
 |---------|--------------------|
 | `bar` | `azoth-render` (in-tree), `wayland-client`/`-backend`/`-protocols`/`-protocols-wlr`/`-scanner`, `bytemuck`, `signal-hook` |
 | `lock` | `pam`, `zeroize` |
+| `wallpaper` | `image` (PNG/JPEG decoding) |
 | `winit` | `smithay/backend_winit` |
 
 ---
@@ -134,6 +135,16 @@ travel while new-tag windows slide in from the opposite side. Duration
 animation and re-arranges afterwards so late-committing clients (e.g. video
 players) don't show a blank first frame.
 
+### `wallpaper`
+[`src/features/wallpaper.rs`](../src/features/wallpaper.rs) — decodes PNG/JPEG
+images (via the `image` crate) and composites them behind windows. Supports a
+`default` image and per-tag wallpapers (`wallpaper.tags`), with fit modes
+`fill` / `fit` / `stretch` / `center`. Decoding runs on a background thread and
+results are cached, so a tag revisit never re-decodes; `preload_configured()`
+warms every configured image at startup. Set at runtime with `rwl msg wallpaper`
+(see [IPC.md](IPC.md#wm-commands)) or from a hook via `rwl.set_wallpaper` /
+`rwl.preload` (see [CONFIGURATION.md](CONFIGURATION.md#lua-hooks)).
+
 ---
 
 ## System features
@@ -157,10 +168,13 @@ dispatches text commands to the compositor, and supports status subscribers. The
 
 ### `hooks` (Lua event bus)
 [`src/features/hooks.rs`](../src/features/hooks.rs) — keeps the config Lua VM
-alive so user callbacks (`on_window_open`, `on_window_close`, `on_tag_switch`,
-`on_focus`, `on_title_change`) fire on events, turning the static config into a
-programmable one. Callbacks act through a deferred command queue to avoid
-re-entering the compositor borrow. API in
+alive so user callbacks fire on compositor events, turning the static config into
+a programmable one. Events: `on_window_open`, `on_window_close`, `on_tag_switch`,
+`on_focus`, `on_title_change`, `on_fullscreen`, `on_layout_change`,
+`on_monitor_add`, `on_monitor_remove`, `on_startup`. Callbacks read live state
+through snapshot helpers (`rwl.clients()`, `rwl.focused()`, `rwl.count()`, …) and
+mutate it through a deferred command queue (`win:set_tags`, `rwl.zoom`, …) to
+avoid re-entering the compositor borrow. Full API in
 [CONFIGURATION.md](CONFIGURATION.md#lua-hooks).
 
 ### `lock` (native screen locker)
