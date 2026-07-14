@@ -12,3 +12,5 @@ pub mod seat;
 pub mod session_lock;
 pub mod xdg_decoration;
 pub mod xdg_shell;
+#[cfg(feature = "xwayland")]
+pub mod xwayland;

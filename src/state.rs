@@ -44,6 +44,11 @@ use smithay::wayland::xdg_activation::XdgActivationState;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_server::backend::GlobalId;
 
+#[cfg(feature = "xwayland")]
+use smithay::wayland::xwayland_shell::{XWaylandShellHandler, XWaylandShellState};
+#[cfg(feature = "xwayland")]
+use smithay::xwayland::{X11Wm, XWayland, XWaylandEvent};
+
 use crate::config::Action;
 use crate::error::{RwlError, Result};
 use crate::monitor::Monitor;
@@ -350,6 +355,24 @@ pub struct Rwl {
     /// transition has finished.
     #[cfg(feature = "tag-transition")]
     pub post_transition_wakeup: u32,
+
+    // ---- XWayland ----
+    /// `xwayland_shell_v1` global — lets `XWayland` associate its X11 windows with
+    /// their backing `wl_surface`s.  Kept alive for the whole session.
+    #[cfg(feature = "xwayland")]
+    pub xwayland_shell_state: XWaylandShellState,
+    /// The X11 window manager, set once `XWayland` reports Ready. `None` until then
+    /// (and on the winit backend if `XWayland` fails to start).
+    #[cfg(feature = "xwayland")]
+    pub xwm: Option<X11Wm>,
+    /// The X11 `DISPLAY` number `XWayland` is serving on, exported to child procs.
+    #[cfg(feature = "xwayland")]
+    pub xdisplay: Option<u32>,
+    /// `XWayland` override-redirect surfaces (menus, tooltips, drag icons).  Kept
+    /// separate from `windows` so they render (they are mapped in `space`) but
+    /// are never tiled, focused, or given borders.
+    #[cfg(feature = "xwayland")]
+    pub x11_or_windows: Vec<Window>,
 }
 
 // ---------------------------------------------------------------------------
@@ -474,6 +497,9 @@ impl Rwl {
             cursor_shape_manager:           CursorShapeManagerState::new::<Self>(&display_handle),
         };
 
+        #[cfg(feature = "xwayland")]
+        let xwayland_shell_state = XWaylandShellState::new::<Self>(&display_handle);
+
         // Seat
         let seat = seat_state.new_wl_seat(&display_handle, "seat0");
 
@@ -582,7 +608,63 @@ impl Rwl {
             tag_transition_was_active: false,
             #[cfg(feature = "tag-transition")]
             post_transition_wakeup: 0,
+            #[cfg(feature = "xwayland")]
+            xwayland_shell_state,
+            #[cfg(feature = "xwayland")]
+            xwm: None,
+            #[cfg(feature = "xwayland")]
+            xdisplay: None,
+            #[cfg(feature = "xwayland")]
+            x11_or_windows: Vec::new(),
         })
+    }
+
+    /// Spawn `XWayland` and hook its readiness event into the calloop loop.
+    ///
+    /// On `Ready` we start an [`X11Wm`] bound to the privileged X11 socket and
+    /// export `DISPLAY` so any process launched afterwards (startup commands,
+    /// terminals, Steam) can reach `XWayland`.  Called once from `main` after the
+    /// backend and globals are up.
+    #[cfg(feature = "xwayland")]
+    pub fn start_xwayland(&self) {
+        let (xwayland, client) = match XWayland::spawn(
+            &self.display_handle,
+            None,
+            std::iter::empty::<(String, String)>(),
+            true,
+            std::process::Stdio::null(),
+            std::process::Stdio::null(),
+            |_| {},
+        ) {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!("failed to spawn XWayland: {e}");
+                return;
+            }
+        };
+
+        let dh = self.display_handle.clone();
+        let res = self.loop_handle.insert_source(xwayland, move |event, (), state| match event {
+            XWaylandEvent::Ready { x11_socket, display_number } => {
+                match X11Wm::start_wm(state.loop_handle.clone(), &dh, x11_socket, client.clone()) {
+                    Ok(wm) => {
+                        state.xwm = Some(wm);
+                        // Stored so `configure_child` can export DISPLAY to every
+                        // process rwl spawns (startup cmds, terminals, Steam, games)
+                        // without mutating the compositor's own environment.
+                        state.xdisplay = Some(display_number);
+                        tracing::info!("XWayland ready on DISPLAY=:{display_number}");
+                    }
+                    Err(e) => tracing::error!("failed to start X11 window manager: {e}"),
+                }
+            }
+            XWaylandEvent::Error => {
+                tracing::warn!("XWayland crashed on startup");
+            }
+        });
+        if let Err(e) = res {
+            tracing::error!("failed to insert XWayland source into event loop: {e}");
+        }
     }
 
     /// Whether the `wp_linux_drm_syncobj_manager_v1` global has been created.
@@ -893,6 +975,17 @@ impl Rwl {
     /// current and pending state so apps that send constraints before their
     /// first commit (e.g. ripdrag/dragon) are also caught.
     fn window_is_float_type(window: &Window) -> bool {
+        // XWayland: popups/menus and fixed-size (min==max) windows float.
+        #[cfg(feature = "xwayland")]
+        if let Some(x) = window.x11_surface() {
+            if x.is_popup() {
+                return true;
+            }
+            if let (Some(min), Some(max)) = (x.min_size(), x.max_size()) {
+                return min.w != 0 && min.h != 0 && (min.w == max.w || min.h == max.h);
+            }
+            return false;
+        }
         window.toplevel().is_some_and(|t| {
             with_states(t.wl_surface(), |states| {
                 let mut guard = states.cached_state.get::<SurfaceCachedState>();
@@ -947,6 +1040,24 @@ impl Rwl {
                             ))
                         })
                 })
+            })
+            .or_else(|| {
+                // XWayland windows have no xdg toplevel: match rules against the
+                // X11 WM_CLASS (app id) and WM_NAME (title) instead.
+                #[cfg(feature = "xwayland")]
+                {
+                    // Transient (parented) X11 windows are dialogs; float them.
+                    window.x11_surface().map(|x| {
+                        let dialog = if x.is_transient_for().is_some() {
+                            ToplevelDialogHint::Dialog
+                        } else {
+                            ToplevelDialogHint::Unknown
+                        };
+                        (x.class(), x.title(), dialog)
+                    })
+                }
+                #[cfg(not(feature = "xwayland"))]
+                None
             })
             .unwrap_or_default();
 
@@ -1346,9 +1457,10 @@ impl Rwl {
             // so when the client commits the new buffer commit() merely bumps
             // border_counter to trigger a redraw at the correct new geometry.
 
+            let (geom_changed, focus_changed) = with_state(w, |s| {
+                (s.pending_geom != Some(*geom), s.last_focused != is_focused)
+            }).unwrap_or((true, true));
             with_state_mut(w, |s| {
-                let geom_changed = s.pending_geom != Some(*geom);
-                let focus_changed = s.last_focused != is_focused;
                 s.pending_geom = Some(*geom);
                 s.last_focused = is_focused;
                 if geom_changed || focus_changed || was_unmapped {
@@ -1376,6 +1488,22 @@ impl Rwl {
                     tl.send_configure();
                 } else {
                     tl.send_pending_configure();
+                }
+            }
+            // XWayland tiled window: position + size it absolutely and mark focus.
+            // Each X11 setter writes to the socket + flushes unconditionally, so
+            // only call them on an actual transition (mirrors the send_pending_configure
+            // no-op the Wayland path above relies on).
+            #[cfg(feature = "xwayland")]
+            if let Some(x11) = w.x11_surface() {
+                if x11.is_fullscreen() {
+                    let _ = x11.set_fullscreen(false);
+                }
+                if geom_changed || was_unmapped {
+                    let _ = x11.configure(*geom);
+                }
+                if focus_changed || was_unmapped {
+                    let _ = x11.set_activated(is_focused);
                 }
             }
         }
@@ -1435,6 +1563,25 @@ impl Rwl {
                     tl.send_pending_configure();
                 }
             }
+            // XWayland floating window: keep its own size, just place it at loc.
+            // Guard each X11 write (socket + flush) so a re-arrange that didn't
+            // move or refocus this window emits no X traffic.
+            #[cfg(feature = "xwayland")]
+            if let Some(x11) = w.x11_surface() {
+                let focus_changed = with_state(w, |s| s.last_focused != is_focused).unwrap_or(true);
+                if focus_changed {
+                    with_state_mut(w, |s| s.last_focused = is_focused);
+                }
+                if x11.is_fullscreen() {
+                    let _ = x11.set_fullscreen(false);
+                }
+                if was_unmapped || x11.geometry().loc != loc {
+                    let _ = x11.configure(Rectangle::new(loc, x11.geometry().size));
+                }
+                if focus_changed || was_unmapped {
+                    let _ = x11.set_activated(is_focused);
+                }
+            }
         }
 
         for &idx in &fs_windows {
@@ -1465,6 +1612,24 @@ impl Rwl {
                     tl.send_configure();
                 } else {
                     tl.send_pending_configure();
+                }
+            }
+            // XWayland fullscreen window: size it to the whole output.  Guard each
+            // X11 write so re-arranging a still-fullscreen window emits no X traffic.
+            #[cfg(feature = "xwayland")]
+            if let Some(x11) = w.x11_surface() {
+                let focus_changed = with_state(w, |s| s.last_focused != is_focused).unwrap_or(true);
+                if focus_changed {
+                    with_state_mut(w, |s| s.last_focused = is_focused);
+                }
+                if !x11.is_fullscreen() {
+                    let _ = x11.set_fullscreen(true);
+                }
+                if was_unmapped || x11.geometry() != fs_geom {
+                    let _ = x11.configure(fs_geom);
+                }
+                if focus_changed || was_unmapped {
+                    let _ = x11.set_activated(is_focused);
                 }
             }
         }
@@ -1834,6 +1999,12 @@ impl Rwl {
                             .get::<XdgToplevelSurfaceData>()
                             .and_then(|d| d.lock().ok().map(|g| (g.title.clone(), g.app_id.clone())))
                     })
+                }).or_else(|| {
+                    // XWayland: pick up live WM_NAME / WM_CLASS changes too.
+                    #[cfg(feature = "xwayland")]
+                    { w.x11_surface().map(|x| (Some(x.title()), Some(x.class()))) }
+                    #[cfg(not(feature = "xwayland"))]
+                    { None }
                 }).unwrap_or_default();
                 let (title_changed, appid_changed) = with_state(w, |s| (
                     s.last_title.as_deref() != title_now.as_deref(),
@@ -1900,6 +2071,30 @@ impl XdgDialogHandler for Rwl {
                     self.arrange_all();
                 }
             }
+        }
+    }
+}
+
+#[cfg(feature = "xwayland")]
+impl XWaylandShellHandler for Rwl {
+    fn xwayland_shell_state(&mut self) -> &mut XWaylandShellState {
+        &mut self.xwayland_shell_state
+    }
+
+    /// `XWayland` has bound a `wl_surface` to an X11 window.  If that window is
+    /// already mapped, key it into `window_map` now so the commit path (rules,
+    /// borders, focus — all `window_for_surface`-based) finds it.  When the
+    /// association arrives *before* the map instead, `map_x11_window` inserts it
+    /// (the surface is available by then), so both orderings are covered without
+    /// scanning every surface commit.
+    fn surface_associated(
+        &mut self,
+        _xwm: smithay::xwayland::xwm::XwmId,
+        wl_surface: WlSurface,
+        surface: smithay::xwayland::X11Surface,
+    ) {
+        if let Some(window) = self.window_for_x11(&surface) {
+            self.window_map.insert(wl_surface, window);
         }
     }
 }

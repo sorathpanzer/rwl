@@ -385,6 +385,14 @@ impl Rwl {
     /// this thread — it acquires one internally and `RwLock` reads are not
     /// reentrant-safe on all platforms.
     pub(crate) fn configure_child(&self, command: &mut std::process::Command) {
+        // Point X11 clients at XWayland when it is running; otherwise strip any
+        // inherited DISPLAY so pure-Wayland apps don't accidentally use X11.
+        #[cfg(feature = "xwayland")]
+        match self.xdisplay {
+            Some(n) => { command.env("DISPLAY", format!(":{n}")); }
+            None => { command.env_remove("DISPLAY"); }
+        }
+        #[cfg(not(feature = "xwayland"))]
         command.env_remove("DISPLAY");
         command.env("WAYLAND_DISPLAY", &self.socket_name);
         command.env("XDG_SESSION_TYPE", "wayland");

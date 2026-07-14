@@ -134,6 +134,19 @@ pub struct LayoutDef {
     pub kind:   LayoutKind,
 }
 
+/// Variable-refresh-rate (adaptive sync, aka `FreeSync` / `G-Sync`) policy for an output.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum VrrMode {
+    /// Never enable VRR (fixed refresh).
+    #[default]
+    Off,
+    /// Always enable VRR when the output supports it.
+    On,
+    /// Enable VRR only while a fullscreen window occupies the output — the usual
+    /// choice for gaming, avoiding VRR flicker on the static desktop.
+    OnDemand,
+}
+
 #[derive(Debug, Clone)]
 pub struct MonitorRule {
     pub name:       Option<String>,
@@ -144,6 +157,7 @@ pub struct MonitorRule {
     pub transform:  Transform,
     pub x:          i32,
     pub y:          i32,
+    pub vrr:        VrrMode,
 }
 
 impl Default for MonitorRule {
@@ -151,6 +165,7 @@ impl Default for MonitorRule {
         Self {
             name: None, mfact: 0.55, nmaster: 1, scale: 1.0,
             layout_idx: 0, transform: Transform::Normal, x: -1, y: -1,
+            vrr: VrrMode::Off,
         }
     }
 }

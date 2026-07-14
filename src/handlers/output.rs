@@ -119,6 +119,8 @@ impl Rwl {
             }
         }
         self.update_monitor_bounds();
+        // Adaptive-sync policy may have changed with the reloaded rules.
+        self.reapply_vrr();
     }
 
     /// Remove an output (monitor disconnected).

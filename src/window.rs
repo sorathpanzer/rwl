@@ -82,6 +82,11 @@ pub struct WindowState {
     /// Used to detect focus-change events and bump `border_counter` only when
     /// the focused/unfocused state actually changed (avoids spurious redraws).
     pub last_focused: bool,
+    /// `true` for `XWayland` override-redirect surfaces (menus, tooltips, drag
+    /// icons).  These are unmanaged: rendered via the space but excluded from
+    /// tiling, focus, and borders.  Always `false` for Wayland/managed windows.
+    #[cfg(feature = "xwayland")]
+    pub is_override_redirect: bool,
     /// Current opacity used when rendering this window (0.0 = invisible, 1.0 = opaque).
     /// Driven by `advance_fades()` each frame during enter/exit transitions.
     #[cfg(feature = "fade")]
@@ -162,6 +167,8 @@ impl WindowState {
             pending_geom: None,
             buffer_mapped: false,
             last_focused: false,
+            #[cfg(feature = "xwayland")]
+            is_override_redirect: false,
             #[cfg(feature = "fade")]
             fade_alpha: 1.0,
             #[cfg(feature = "fade")]

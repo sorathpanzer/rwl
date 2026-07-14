@@ -100,6 +100,10 @@ pub struct OutputSurface {
     /// callback would corrupt GBM buffer state and cause the driver to
     /// silently drop subsequent flips.
     pub flip_pending: bool,
+    /// The connector handle, retained so VRR can be toggled per-output at runtime.
+    pub connector: connector::Handle,
+    /// The configured VRR policy for this output (from its monitor rule).
+    pub vrr_mode: crate::config::VrrMode,
 }
 
 // ---------------------------------------------------------------------------
@@ -767,7 +771,27 @@ impl Rwl {
         let compositor_result = self.build_drm_compositor(device_id, info, &output);
 
         match compositor_result {
-            Ok((compositor, damage_tracker)) => {
+            Ok((mut compositor, damage_tracker)) => {
+                // Apply the output's VRR policy up-front.  `On` enables adaptive
+                // sync immediately when the hardware supports it; `OnDemand` is
+                // left off here and toggled from the render loop when a fullscreen
+                // window appears.  Requires atomic modesetting — the legacy DRM
+                // backend reports `NotSupported`, so this is a safe no-op there.
+                let vrr_mode = crate::monitor::matching_rule_for_output(&output).vrr;
+                if vrr_mode == crate::config::VrrMode::On {
+                    if matches!(
+                        compositor.vrr_supported(info.conn),
+                        Ok(smithay::backend::drm::VrrSupport::Supported)
+                    ) {
+                        if let Err(e) = compositor.use_vrr(true) {
+                            tracing::warn!("{}: enabling VRR failed: {e}", info.name);
+                        } else {
+                            tracing::info!("{}: VRR enabled", info.name);
+                        }
+                    } else {
+                        tracing::info!("{}: VRR requested but not supported", info.name);
+                    }
+                }
                 // Publish a wl_output global so Wayland clients (bars, apps,
                 // layer-shell surfaces) can see this monitor.  This MUST be done
                 // before output_added() advertises it to the space, otherwise
@@ -786,6 +810,8 @@ impl Rwl {
                             damage_tracker,
                             output_global,
                             flip_pending: false,
+                            connector: info.conn,
+                            vrr_mode,
                         },
                     );
                 }
@@ -1052,6 +1078,14 @@ impl Rwl {
 
         // Compute context values before mutably borrowing self.backend.
         let has_fullscreen = self.space.elements().any(crate::window::window_is_fullscreen);
+        // Per-output fullscreen state for OnDemand VRR — the global `has_fullscreen`
+        // above would (wrongly) drive VRR on a second, non-gaming monitor.
+        let output_has_fullscreen = self.monitor_for_output(&output).is_some_and(|idx| {
+            self.space.elements().any(|w| {
+                crate::window::window_is_fullscreen(w)
+                    && crate::window::with_state(w, |s| s.mon_idx) == Some(idx)
+            })
+        });
         let top_has_kbd_focus = {
             let map = smithay::desktop::layer_map_for_output(&output);
             map.layers_on(smithay::wayland::shell::wlr_layer::Layer::Top)
@@ -1320,6 +1354,20 @@ impl Rwl {
             let Some(dev) = backend.devices.get_mut(&device_id) else { return };
             let (surfaces, renderer) = (&mut dev.surfaces, &mut dev.renderer);
             let Some(surface) = surfaces.get_mut(&crtc) else { return };
+
+            // OnDemand VRR: follow the presence of a fullscreen window, flipping
+            // adaptive sync on/off only on transitions to avoid per-frame churn.
+            if surface.vrr_mode == crate::config::VrrMode::OnDemand
+                && surface.compositor.vrr_enabled() != output_has_fullscreen
+                && (!output_has_fullscreen
+                    || matches!(
+                        surface.compositor.vrr_supported(surface.connector),
+                        Ok(smithay::backend::drm::VrrSupport::Supported)
+                    ))
+                && let Err(e) = surface.compositor.use_vrr(output_has_fullscreen)
+            {
+                tracing::warn!("on-demand VRR toggle failed: {e}");
+            }
 
             let fullscreen_bg = crate::config::get().fullscreen_bg;
             let render_result = match surface.compositor.render_frame(
@@ -1669,6 +1717,33 @@ impl Rwl {
         for d in &mut devices { apply_libinput_config(d, &cfg); }
         if let Some(backend) = self.backend_data_opt() {
             backend.input_devices = devices;
+        }
+    }
+
+    /// Re-apply each output's VRR policy after a config reload, so changing a
+    /// monitor rule's `vrr` field takes effect without reconnecting the display.
+    /// `OnDemand` outputs are left to the render loop; only `On`/`Off` are forced.
+    pub fn reapply_vrr(&mut self) {
+        let Some(backend) = self.backend_data_opt() else { return };
+        for dev in backend.devices.values_mut() {
+            for surface in dev.surfaces.values_mut() {
+                let mode = crate::monitor::matching_rule_for_output(&surface.output).vrr;
+                surface.vrr_mode = mode;
+                if mode == crate::config::VrrMode::OnDemand {
+                    continue;
+                }
+                let want = mode == crate::config::VrrMode::On;
+                if surface.compositor.vrr_enabled() != want
+                    && (!want
+                        || matches!(
+                            surface.compositor.vrr_supported(surface.connector),
+                            Ok(smithay::backend::drm::VrrSupport::Supported)
+                        ))
+                    && let Err(e) = surface.compositor.use_vrr(want)
+                {
+                    tracing::warn!("reapply VRR failed: {e}");
+                }
+            }
         }
     }
 }

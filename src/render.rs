@@ -228,6 +228,14 @@ pub fn border_elements(
     // always drawn on top when stacked windows share the same geometry (monocle).
     let mut out: Vec<SolidColorRenderElement> = space.elements()
         .filter(|w| !with_state(w, |s| s.is_fullscreen).unwrap_or(false))
+        // XWayland override-redirect surfaces (menus, tooltips) are unmanaged and
+        // must not get a WM border.
+        .filter(|w| {
+            #[cfg(feature = "xwayland")]
+            { !with_state(w, |s| s.is_override_redirect).unwrap_or(false) }
+            #[cfg(not(feature = "xwayland"))]
+            { true }
+        })
         .filter(|w| Some(*w) != focused)
         .filter_map(|w| {
             // Fully transparent border: omit the element entirely.

@@ -147,6 +147,30 @@ fn run(startup_cmd: Option<String>) -> Result<()> {
         }
     }
 
+    // Start XWayland so X11 apps (Steam, Proton games, legacy tools) can connect.
+    // Must precede startup commands so DISPLAY is available to whatever they launch.
+    #[cfg(feature = "xwayland")]
+    {
+        state.start_xwayland();
+        // Readiness (and the DISPLAY number) arrives asynchronously via the event
+        // source inserted above.  Pump the loop briefly so `configure_child` can
+        // export DISPLAY to the startup/autostart programs spawned just below;
+        // XWayland normally becomes ready in a few ms.  If it doesn't, we proceed
+        // anyway — later (interactive) spawns still pick up DISPLAY once Ready fires.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(300);
+        while state.xdisplay.is_none() && std::time::Instant::now() < deadline {
+            if let Err(e) = event_loop
+                .dispatch(Some(std::time::Duration::from_millis(20)), &mut state)
+            {
+                tracing::warn!("event loop error while waiting for XWayland: {e}");
+                break;
+            }
+        }
+        if state.xdisplay.is_none() {
+            tracing::warn!("XWayland not ready in time; startup X11 apps may not get DISPLAY");
+        }
+    }
+
     if let Some(cmd) = startup_cmd {
         tracing::info!("Spawning startup command: {}", cmd);
 

@@ -136,6 +136,13 @@ impl CompositorHandler for Rwl {
             }
             if let Some(w) = self.window_for_surface(&root).cloned() {
                 w.on_commit();
+            } else {
+                // XWayland override-redirect surface (menu/tooltip): update its
+                // bbox too, but it is otherwise unmanaged (no rules/focus/tiling).
+                #[cfg(feature = "xwayland")]
+                if let Some(w) = self.x11_or_window_for_surface(&root) {
+                    w.on_commit();
+                }
             }
         }
 

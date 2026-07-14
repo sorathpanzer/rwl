@@ -492,6 +492,16 @@ fn parse_transform(s: &str) -> Option<Transform> {
     }
 }
 
+/// Parse an optional `vrr = "off" | "on" | "ondemand"` monitor-rule field.
+fn parse_vrr(s: Option<&str>) -> super::VrrMode {
+    use super::VrrMode;
+    match s {
+        Some("on")       => VrrMode::On,
+        Some("ondemand") => VrrMode::OnDemand,
+        _                => VrrMode::Off,
+    }
+}
+
 fn lua_monitor_rules(t: &mlua::Table, default: Vec<MonitorRule>) -> Vec<MonitorRule> {
     let Ok(arr) = t.get::<mlua::Table>("monitor_rules") else { return default; };
     let out: Vec<MonitorRule> = arr.sequence_values::<mlua::Table>()
@@ -509,6 +519,7 @@ fn lua_monitor_rules(t: &mlua::Table, default: Vec<MonitorRule>) -> Vec<MonitorR
                 transform,
                 x: lua_i32(&tbl, "x", -1),
                 y: lua_i32(&tbl, "y", -1),
+                vrr: parse_vrr(lua_str(&tbl, "vrr").as_deref()),
             })
         })
         .collect();
