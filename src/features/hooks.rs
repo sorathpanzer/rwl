@@ -566,6 +566,16 @@ pub fn setup(lua: &Lua) -> mlua::Result<()> {
             Ok(())
         })?,
     )?;
+    // rwl.reset_layout(): drop the manual layout pin on the selected tag and
+    // restore its configured pertag_layouts default.
+    #[cfg(feature = "pertag-layouts")]
+    rwl.set(
+        "reset_layout",
+        lua.create_function(|_, ()| {
+            enqueue(HookCmd::Dispatch(Action::ResetLayout));
+            Ok(())
+        })?,
+    )?;
 
     // Selected-monitor / focused-window actions — route straight through
     // `dispatch`, so they behave exactly like the equivalent keybinding.

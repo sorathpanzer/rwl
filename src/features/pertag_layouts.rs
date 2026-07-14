@@ -60,6 +60,20 @@ pub fn apply(monitor: &mut Monitor, tagmask: u32) {
     set_monitor_layout(monitor, idx);
 }
 
+/// Drop the manual pin on `tagmask` and restore its configured layout.
+///
+/// Clears `Monitor::tag_lt_override` for the tag so automatic switching resumes,
+/// then re-applies the fixed rule immediately.  Count-based rules resolve on the
+/// next `arrange()` via [`apply_dynamic`].  No-op for multi-tag views.
+pub fn reset(monitor: &mut Monitor, tagmask: u32) {
+    if !tagmask.is_power_of_two() { return; }
+    let tag_idx = tagmask.trailing_zeros() as usize;
+    if let Some(slot) = monitor.tag_lt_override.get_mut(tag_idx) {
+        *slot = None;
+    }
+    apply(monitor, tagmask);
+}
+
 /// Re-evaluate a count-based rule for `tagmask` given the current tiled-window
 /// `count`.  Called from `arrange()`, which runs on every window open, close and
 /// tag switch — so the layout tracks the count in both directions.  No-op for

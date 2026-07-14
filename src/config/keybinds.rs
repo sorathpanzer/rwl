@@ -214,6 +214,8 @@ fn parse_action(tbl: &mlua::Table, action: &str) -> Option<Action> {
         "kill_client"                    => Some(Action::KillClient),
         "set_layout"                     => Some(Action::SetLayout(lua_u32(tbl, "index", 0) as usize)),
         "cycle_layout"                   => Some(Action::CycleLayout),
+        #[cfg(feature = "pertag-layouts")]
+        "reset_layout"                   => Some(Action::ResetLayout),
         "toggle_floating"                => Some(Action::ToggleFloating),
         "toggle_fullscreen"              => Some(Action::ToggleFullscreen),
         "toggle_passthrough"             => Some(Action::TogglePassthrough),

@@ -174,6 +174,14 @@ impl Rwl {
                 }
                 self.arrange_all();
             }
+            #[cfg(feature = "pertag-layouts")]
+            Action::ResetLayout => {
+                if let Some(m) = self.sel_monitor_mut() {
+                    let tags = m.tags();
+                    crate::features::pertag_layouts::reset(m, tags);
+                }
+                self.arrange_all();
+            }
             Action::ToggleFloating => self.toggle_focused_floating(),
             Action::ToggleFullscreen => self.toggle_focused_fullscreen(),
             Action::TogglePassthrough => {

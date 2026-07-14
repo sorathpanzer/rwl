@@ -176,6 +176,8 @@ pub enum Action {
     KillClient,
     SetLayout(usize),
     CycleLayout,
+    #[cfg(feature = "pertag-layouts")]
+    ResetLayout,
     ToggleFloating,
     ToggleFullscreen,
     TogglePassthrough,

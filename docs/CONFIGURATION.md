@@ -278,6 +278,7 @@ Every action name accepted in a binding (from `parse_action` in
 | `kill_client` | | Close the focused window. |
 | `set_layout` | `index` | Select layout by index (`usize::MAX` = last/toggle). |
 | `cycle_layout` | | Cycle to the next layout. |
+| `reset_layout` | | Drop the manual layout pin on the current tag and restore its `pertag_layouts` default. |
 | `toggle_floating` | | Toggle floating on the focused window. |
 | `toggle_fullscreen` | | Toggle fullscreen. |
 | `toggle_passthrough` | | Toggle keybinding passthrough (keys go to the client). |
@@ -469,7 +470,7 @@ returns, and once per event-loop iteration). This avoids re-entering the
 `&mut Rwl` borrow that is running the event.
 
 - `rwl` table: `spawn`, `view`, `toggle_view(mask)`, `set_layout(name_or_index)`,
-  `zoom()`, `inc_nmaster(delta)`, `set_mfact(delta)`, `focus_monitor(dir)`,
+  `reset_layout()`, `zoom()`, `inc_nmaster(delta)`, `set_mfact(delta)`, `focus_monitor(dir)`,
   `notify(text)`, `set_wallpaper(path[, mode])` / `preload(path)` (`wallpaper`
   feature; a nil path clears it).
 - `win` handle: `set_tags(mask)`, `toggle_tag(mask)`, `set_floating(bool)`,
