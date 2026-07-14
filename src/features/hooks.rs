@@ -537,7 +537,7 @@ pub fn setup(lua: &Lua) -> mlua::Result<()> {
     // Convenience: rwl.tag(3) -> bitmask 1 << 2 (tag numbers are 1-based).
     rwl.set(
         "tag",
-        lua.create_function(|_, n: u32| Ok(if n == 0 { 0u32 } else { 1u32 << (n - 1) }))?,
+        lua.create_function(|_, n: u32| Ok(n.checked_sub(1).and_then(|s| 1u32.checked_shl(s)).unwrap_or(0)))?,
     )?;
     // rwl.count(mask): windows on the selected monitor carrying any tag in mask.
     // A zero (or omitted) mask counts every window on the monitor.
