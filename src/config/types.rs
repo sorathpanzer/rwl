@@ -30,6 +30,9 @@ pub struct Rule {
     pub is_floating:  bool,
     pub monitor:      i32,
     pub scratch_key:  char,
+    /// Exempt matching windows from terminal swallowing (`swallow` feature).
+    #[cfg_attr(not(feature = "swallow"), allow(dead_code))]
+    pub no_swallow:   bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -309,6 +312,7 @@ fn r(id: Option<&str>, title: Option<&str>, tags: u32, stag: bool, float: bool, 
         is_floating:  float,
         monitor:      -1,
         scratch_key:  sc,
+        no_swallow:   false,
     }
 }
 

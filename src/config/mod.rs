@@ -126,6 +126,9 @@ pub struct Config {
     // Picture-in-Picture settings.
     #[cfg(feature = "pip")]
     pub pip: PipSettings,
+    // Terminal app-ids allowed to swallow a spawned child window.
+    #[cfg(feature = "swallow")]
+    pub swallow_terminals: Vec<String>,
 }
 
 // ─── Default ─────────────────────────────────────────────────────────────────
@@ -206,6 +209,8 @@ impl Default for Config {
             overview:     OverviewSettings::default(),
             #[cfg(feature = "pip")]
             pip:          PipSettings::default(),
+            #[cfg(feature = "swallow")]
+            swallow_terminals: crate::features::swallow::default_terminals(),
         }
     }
 }

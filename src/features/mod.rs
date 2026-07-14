@@ -36,3 +36,5 @@ pub mod pip;
 pub mod lock;
 #[cfg(feature = "wallpaper")]
 pub mod wallpaper;
+#[cfg(feature = "swallow")]
+pub mod swallow;

@@ -996,7 +996,18 @@ impl Rwl {
             1
         };
 
-        if let Some(tag_mask) = switch_to_tag_mask {
+        // A window that is about to be swallowed replaces its terminal in place,
+        // so it must not trigger the rule's switch_to_tag view jump — the view
+        // must stay on the terminal's tag, not follow the (overridden) rule tag.
+        #[cfg(feature = "swallow")]
+        let will_swallow =
+            crate::features::swallow::find_target(self, window, &appid, &title).is_some();
+        #[cfg(not(feature = "swallow"))]
+        let will_swallow = false;
+
+        if let Some(tag_mask) = switch_to_tag_mask
+            && !will_swallow
+        {
             self.update_tag_history(mon_idx, tag_mask);
             if let Some(m) = self.monitors.get_mut(mon_idx) {
                 let prev = m.tags();
@@ -1165,6 +1176,13 @@ impl Rwl {
         #[cfg(feature = "scratchpad")]
         let mut scratch_windows = std::mem::take(&mut self.arrange_scratch);
         for (idx, w) in self.windows.iter().enumerate() {
+            // A terminal hidden behind the child that swallowed it: keep it out of
+            // the layout and unmapped from the space until the child closes.
+            #[cfg(feature = "swallow")]
+            if with_state(w, |s| s.is_swallowed).unwrap_or(false) {
+                hidden.push(idx);
+                continue;
+            }
             let Some((w_tags, is_fs, is_float, rules_done, scratch_key)) =
                 with_state(w, |s| (s.tags, s.is_fullscreen, s.is_floating, s.rules_applied, s.scratch_key))
             else {

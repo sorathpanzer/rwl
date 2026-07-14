@@ -13,7 +13,7 @@ The `default` feature set enables all of the following:
 tile monocle scratchpad col scroll dwindle bstack centeredmaster
 bar ipc winit rounded-corners gaps warp fade tag-transition
 pertag-layouts startup-cmds auto-back-empty-tag overview hooks pip
-mod-tap lock wallpaper
+mod-tap lock wallpaper swallow
 ```
 
 Build a subset with, e.g.:
@@ -100,6 +100,22 @@ previously viewed tag.
 ### `startup-cmds`
 [`src/features/startup_cmds.rs`](../src/features/startup_cmds.rs) — commands in
 `startup_cmds` are spawned once, unconditionally, after the compositor is ready.
+
+### `swallow` (terminal window swallowing)
+[`src/features/swallow.rs`](../src/features/swallow.rs) — dwm's swallow patch:
+when a terminal spawns a graphical child (`mpv video.mp4`, `zathura doc.pdf`, …
+run from a shell), the terminal is hidden and the child takes its slot in the
+layout; closing the child restores the terminal. Matching is by **process
+ancestry** — the child's PID must descend from the terminal's PID (walked via
+`/proc/<pid>/stat`) and the terminal's `app_id` must be in the configured
+`swallow.terminals` list. A terminal never swallows another terminal. Because
+rwl inserts new windows at the front of the stack, the just-spawned child already
+sits above its terminal in tiling order, so no reordering is needed. When the
+child closes, the restored terminal takes focus. A per-rule `no_swallow` flag
+exempts specific apps (see [CONFIGURATION.md](CONFIGURATION.md#rules)). A swallowed
+window inherits the terminal's tag and monitor, so a `switch_to_tag` rule on the
+child is suppressed — the view stays on the terminal's tag rather than jumping
+away. Linux-only (reads `/proc`), matching rwl's udev/DRM target.
 
 ---
 

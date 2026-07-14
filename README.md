@@ -47,7 +47,8 @@ locker (`lock`), Lua event hooks (`hooks`), fade animations (`fade`), tag-switch
 slide animations (`tag-transition`), rounded corners (`rounded-corners`), gaps
 (`gaps`), cursor warp (`warp`), mod-key tap gesture (`mod-tap`), auto-return
 from empty tags (`auto-back-empty-tag`), startup commands (`startup-cmds`),
-per-tag wallpapers (`wallpaper`), nested winit backend (`winit`).
+per-tag wallpapers (`wallpaper`), terminal window swallowing (`swallow`),
+nested winit backend (`winit`).
 
 See [`docs/FEATURES.md`](docs/FEATURES.md) for a per-feature description.
 

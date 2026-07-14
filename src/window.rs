@@ -125,6 +125,15 @@ pub struct WindowState {
     /// Cleared by `finalize_slide_outs()` after the animation completes.
     #[cfg(feature = "tag-transition")]
     pub slide_out: bool,
+    /// `true` when this window is a terminal hidden because a child swallowed it
+    /// (see [`crate::features::swallow`]). Excluded from the layout and render
+    /// until restored.
+    #[cfg(feature = "swallow")]
+    pub is_swallowed: bool,
+    /// The terminal this window is swallowing, if any. Restored when this window
+    /// (the child) is unmapped.
+    #[cfg(feature = "swallow")]
+    pub swallowing: Option<Window>,
 }
 
 impl WindowState {
@@ -177,6 +186,10 @@ impl WindowState {
             slide_to_x: 0.0,
             #[cfg(feature = "tag-transition")]
             slide_out: false,
+            #[cfg(feature = "swallow")]
+            is_swallowed: false,
+            #[cfg(feature = "swallow")]
+            swallowing: None,
         }
     }
 }

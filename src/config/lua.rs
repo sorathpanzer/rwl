@@ -77,6 +77,8 @@ const TOPLEVEL_KEYS: &[&str] = &[
     "overview",
     #[cfg(feature = "pip")]
     "pip",
+    #[cfg(feature = "swallow")]
+    "swallow",
     #[cfg(feature = "hooks")]
     "rwl",
 ];
@@ -252,6 +254,8 @@ impl Config {
             overview:     super::settings::lua_overview_settings(g),
             #[cfg(feature = "pip")]
             pip:          super::settings::lua_pip_settings(g),
+            #[cfg(feature = "swallow")]
+            swallow_terminals: crate::features::swallow::lua_parse(g),
         }
     }
 }
@@ -423,6 +427,10 @@ fn lua_rules(t: &mlua::Table, default: Vec<Rule>) -> Vec<Rule> {
                                 .unwrap_or('\0'),
                 #[cfg(not(feature = "scratchpad"))]
                 scratch_key: '\0',
+                #[cfg(feature = "swallow")]
+                no_swallow:   lua_bool(&tbl, "no_swallow", false),
+                #[cfg(not(feature = "swallow"))]
+                no_swallow:   false,
             })
         })
         .collect();

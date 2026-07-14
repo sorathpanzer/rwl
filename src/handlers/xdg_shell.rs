@@ -209,6 +209,11 @@ impl XdgShellHandler for Rwl {
         let was_visible = window.as_ref()
             .is_some_and(|w| with_state(w, |s| s.buffer_mapped).unwrap_or(false));
 
+        // A terminal restored from a swallow, if the closing window swallowed one;
+        // it becomes the focus target below.
+        #[cfg(feature = "swallow")]
+        let mut restored_terminal = None;
+
         if let Some(w) = window {
             // Clear PiP if the mirrored window is the one closing.
             #[cfg(feature = "pip")]
@@ -243,6 +248,13 @@ impl XdgShellHandler for Rwl {
             if was_visible {
                 crate::features::ipc::event::window(self, "close", &w);
             }
+
+            // If this window swallowed a terminal, restore it (the re-arrange
+            // below brings it back on screen) and focus it.
+            #[cfg(feature = "swallow")]
+            {
+                restored_terminal = crate::features::swallow::on_unmap(self, &w);
+            }
         }
 
         // Always re-focus and re-arrange so the layout is correct after removing
@@ -257,6 +269,9 @@ impl XdgShellHandler for Rwl {
         } else {
             self.focused_window().cloned()
         };
+        // A terminal just un-swallowed takes focus over the default target.
+        #[cfg(feature = "swallow")]
+        let top = restored_terminal.take().or(top);
         self.focus_window(top);
         self.arrange_all();
         #[cfg(feature = "warp")]

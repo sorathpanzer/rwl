@@ -164,6 +164,10 @@ impl CompositorHandler for Rwl {
                 // xdg states (Activated, Tiled, …) in one shot.
                 with_state_mut(w, |s| s.rules_applied = true);
                 self.apply_rules(w);
+                // If this window was spawned by a terminal, hide that terminal and
+                // let this window take its slot (before the first arrange).
+                #[cfg(feature = "swallow")]
+                crate::features::swallow::try_swallow(self, w);
                 // Fire on_window_open now — after static rules, before the first
                 // arrange — so a callback's set_tags/set_floating behave like a
                 // rule (no visible re-tile).

@@ -47,7 +47,8 @@ tables. The table below lists every recognized key, its group, and its default.
 | `pertag_layouts` | table | tile on all tags | Per-tag layout assignment (`pertag-layouts` feature). |
 
 Grouped tables: `windows`, `wallpaper`, `effects`, `keyboard`, `mouse`, `bar`,
-`overview`, `pip`, plus `rwl` (the hooks namespace). Each is described below.
+`overview`, `pip`, `swallow`, plus `rwl` (the hooks namespace). Each is described
+below.
 
 ### `windows`
 
@@ -71,6 +72,36 @@ Requires the `wallpaper` feature.
 | `tags` | table | none | Per-tag wallpapers: `{ [tag] = "path", … }`. Preloaded at startup. |
 | `default` | string | none | Fallback wallpaper image path (`~` expanded; PNG/JPEG), used for tags with no `tags` entry. |
 | `mode` | string | `fill` | Fit mode: `fill`, `fit`, `stretch`, `center`. |
+
+### `swallow`
+
+Requires the `swallow` feature. When a listed terminal spawns a graphical child
+(e.g. `mpv` from a shell), the terminal is hidden and the child takes its place
+until the child closes (dwm's swallow). See
+[FEATURES.md](FEATURES.md#swallow-terminal-window-swallowing).
+
+| Key | Type | Default | Meaning |
+|-----|------|---------|---------|
+| `terminals` | string[] | common terminals (foot, st, alacritty, kitty, wezterm, …) | `app_id`s allowed to swallow a child, matched case-insensitively. |
+
+```lua
+swallow = { terminals = { "foot", "Alacritty", "kitty" } }
+```
+
+Matching is by process ancestry (the child must be a descendant of the
+terminal's process), so it only works for children the terminal actually
+launched. A terminal never swallows another terminal. When the child closes, the
+restored terminal takes keyboard focus.
+
+To exempt specific apps from being swallowed, set `no_swallow` on a
+[rule](#rules) — e.g. keep a floating picture viewer visible *alongside* its
+terminal instead of replacing it:
+
+```lua
+rules = {
+  { id = "imv", no_swallow = true },
+}
+```
 
 ### `effects`
 
@@ -140,6 +171,7 @@ placement. Fields (defaults in parentheses):
 | `is_floating` | bool | Open floating. |
 | `monitor` | int | Target monitor index (`-1` = current). |
 | `scratch_key` | char | Bind the window to a scratchpad key (`scratchpad` feature). |
+| `no_swallow` | bool | Exempt matching windows from being swallowed by a terminal (`swallow` feature). |
 
 Default rules place `chromium-browser` on tag 1 (switching to it), `foot` on
 tag 2 (switching to it), and register a `scratchpad`-app-id floating scratchpad
