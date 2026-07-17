@@ -74,7 +74,7 @@ pub(super) fn lua_bar_settings(g: &mlua::Table) -> BarSettings {
         middle_bg_selected: lua_u32(&tbl, "middle_bg_selected", d.middle_bg_selected),
         blocks:             lua_bar_blocks(&tbl, d.blocks),
         blocks_delim:       lua_str(&tbl, "blocks_delim").unwrap_or(d.blocks_delim),
-        tag_names:          lua_bar_tag_names(&tbl, d.tag_names),
+        tag_names:          lua_tag_names(g, d.tag_names),
     }
 }
 
@@ -97,9 +97,12 @@ fn lua_bar_blocks(t: &mlua::Table, default: Vec<BlockSettings>) -> Vec<BlockSett
     if out.is_empty() { default } else { out }
 }
 
+/// Tag labels come from the top-level global `tags.names` (shared with the core's
+/// `tags.number`), not from the bar table — so the count and labels live together.
 #[cfg(feature = "bar")]
-fn lua_bar_tag_names(t: &mlua::Table, default: Vec<String>) -> Vec<String> {
-    let Ok(arr) = t.get::<mlua::Table>("tag_names") else { return default; };
+fn lua_tag_names(g: &mlua::Table, default: Vec<String>) -> Vec<String> {
+    let Ok(tags) = g.get::<mlua::Table>("tags") else { return default; };
+    let Ok(arr) = tags.get::<mlua::Table>("names") else { return default; };
     let n = arr.raw_len();
     if n == 0 { return default; }
     (1..=n)

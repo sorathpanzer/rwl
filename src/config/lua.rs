@@ -68,7 +68,7 @@ const LUA_BUILTINS: &[&str] = &[
 ];
 
 const TOPLEVEL_KEYS: &[&str] = &[
-    "tag_count", "rules", "layouts", "monitor_rules",
+    "tags", "rules", "layouts", "monitor_rules",
     "keys", "buttons", "auto_spawn", "startup_cmds", "bar_cmd",
     "bar", "windows", "effects", "keyboard", "mouse", "pertag_layouts",
     #[cfg(feature = "wallpaper")]
@@ -127,8 +127,10 @@ const BAR_KEYS: &[&str] = &[
     "hide_vacant", "status_commands", "center_title", "active_color_title",
     "active_fg", "active_bg", "occupied_fg", "occupied_bg",
     "inactive_fg", "inactive_bg", "urgent_fg", "urgent_bg",
-    "middle_bg", "middle_bg_selected", "blocks", "blocks_delim", "tag_names",
+    "middle_bg", "middle_bg_selected", "blocks", "blocks_delim",
 ];
+
+const TAGS_KEYS: &[&str] = &["names", "number"];
 
 fn scan_keys(t: &mlua::Table, prefix: Option<&str>, known: &[&str], skip_builtins: bool, out: &mut Vec<String>) {
     for pair in t.pairs::<String, mlua::Value>() {
@@ -149,6 +151,7 @@ fn scan_keys(t: &mlua::Table, prefix: Option<&str>, known: &[&str], skip_builtin
 fn collect_unknown_keys(g: &mlua::Table) -> Vec<String> {
     let mut out = Vec::new();
     scan_keys(g, None, TOPLEVEL_KEYS, true, &mut out);
+    if let Ok(t) = g.get::<mlua::Table>("tags")     { scan_keys(&t, Some("tags"),     TAGS_KEYS,     false, &mut out); }
     if let Ok(t) = g.get::<mlua::Table>("windows")  { scan_keys(&t, Some("windows"),  WINDOWS_KEYS,  false, &mut out); }
     #[cfg(feature = "wallpaper")]
     if let Ok(t) = g.get::<mlua::Table>("wallpaper") { scan_keys(&t, Some("wallpaper"), WALLPAPER_KEYS, false, &mut out); }
@@ -169,7 +172,8 @@ fn collect_unknown_keys(g: &mlua::Table) -> Vec<String> {
 impl Config {
     pub(super) fn from_lua_globals(g: &mlua::Table) -> Self {
         let defaults = Self::default();
-        let tag_count = lua_u32(g, "tag_count", defaults.tag_count);
+        let tag_count = g.get::<mlua::Table>("tags").ok()
+            .map_or(defaults.tag_count, |t| lua_u32(&t, "number", defaults.tag_count));
         let layouts   = lua_layouts(g, defaults.layouts);
         #[cfg(feature = "pertag-layouts")]
         let pertag_layouts = crate::features::pertag_layouts::lua_parse(g, &layouts, tag_count);
@@ -504,28 +508,41 @@ fn parse_vrr(s: Option<&str>) -> super::VrrMode {
     }
 }
 
+fn parse_monitor_rule(tbl: &mlua::Table) -> MonitorRule {
+    let transform = lua_str(tbl, "transform")
+        .and_then(|s| parse_transform(&s))
+        .unwrap_or(Transform::Normal);
+    MonitorRule {
+        name:       lua_str(tbl, "name"),
+        mfact:      lua_f64(tbl, "mfact", 0.55),
+        nmaster:    lua_i32(tbl, "nmaster", 1),
+        scale:      lua_f64(tbl, "scale", 1.0),
+        layout_idx: lua_u32(tbl, "layout", 0) as usize,
+        transform,
+        x: lua_i32(tbl, "x", -1),
+        y: lua_i32(tbl, "y", -1),
+        vrr: parse_vrr(lua_str(tbl, "vrr").as_deref()),
+    }
+}
+
+/// Accepts two shapes:
+///   * an array of rule tables (multi-monitor): `monitor_rules = { { name=… }, … }`
+///   * a single flat rule table (like the `windows`/`mouse` blocks):
+///     `monitor_rules = { mfact = 0.55, vrr = "off", … }`
+/// An empty or absent table falls back to the compiled-in default.
 fn lua_monitor_rules(t: &mlua::Table, default: Vec<MonitorRule>) -> Vec<MonitorRule> {
     let Ok(arr) = t.get::<mlua::Table>("monitor_rules") else { return default; };
-    let out: Vec<MonitorRule> = arr.sequence_values::<mlua::Table>()
-        .filter_map(|v| {
-            let tbl = v.ok()?;
-            let transform = lua_str(&tbl, "transform")
-                .and_then(|s| parse_transform(&s))
-                .unwrap_or(Transform::Normal);
-            Some(MonitorRule {
-                name:       lua_str(&tbl, "name"),
-                mfact:      lua_f64(&tbl, "mfact", 0.55),
-                nmaster:    lua_i32(&tbl, "nmaster", 1),
-                scale:      lua_f64(&tbl, "scale", 1.0),
-                layout_idx: lua_u32(&tbl, "layout", 0) as usize,
-                transform,
-                x: lua_i32(&tbl, "x", -1),
-                y: lua_i32(&tbl, "y", -1),
-                vrr: parse_vrr(lua_str(&tbl, "vrr").as_deref()),
-            })
-        })
+    let out: Vec<MonitorRule> = arr.clone().sequence_values::<mlua::Table>()
+        .filter_map(|v| v.ok().map(|tbl| parse_monitor_rule(&tbl)))
         .collect();
-    if out.is_empty() { default } else { out }
+    if !out.is_empty() { return out; }
+    // No array elements: treat the table itself as a single flat rule, unless it
+    // is entirely empty (then keep the default).
+    if arr.clone().pairs::<mlua::Value, mlua::Value>().next().is_none() {
+        default
+    } else {
+        vec![parse_monitor_rule(&arr)]
+    }
 }
 
 // ─── Lua argv / auto-spawn ────────────────────────────────────────────────────
