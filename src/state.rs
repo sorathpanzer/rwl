@@ -975,7 +975,7 @@ impl Rwl {
     /// window beneath the cursor, a window closes, layout re-tiles — Smithay keeps
     /// routing to the old surface until the next motion. Without this, clicking
     /// after a keyboard tag switch is delivered to the now-hidden window (e.g. a
-    /// YouTube video on another tag toggles play/pause). Call after any operation
+    /// `YouTube` video on another tag toggles play/pause). Call after any operation
     /// that maps/unmaps windows without a pointer event.
     pub fn refresh_pointer_focus(&mut self) {
         // A grab (move/resize) owns pointer routing; don't disturb it.
