@@ -34,6 +34,16 @@ pub fn default_terminals() -> Vec<String> {
     .collect()
 }
 
+/// Parse `swallow = { enabled = true }`. Swallowing is **off by default**; a
+/// missing table or missing key leaves it disabled.
+#[must_use]
+pub fn lua_enabled(g: &mlua::Table) -> bool {
+    g.get::<mlua::Table>("swallow")
+        .ok()
+        .and_then(|t| t.get::<bool>("enabled").ok())
+        .unwrap_or(false)
+}
+
 /// Parse `swallow = { terminals = { "foot", … } }`. A missing table or empty
 /// list yields the built-in [`default_terminals`].
 #[must_use]
@@ -83,6 +93,11 @@ fn parent_pid(pid: i32) -> Option<i32> {
 /// Pure query (no state change) so `apply_rules` can consult it *before* firing a
 /// `switch_to_tag` view jump the swallow would otherwise contradict.
 pub fn find_target(state: &Rwl, child: &Window, appid: &str, title: &str) -> Option<Window> {
+    // Swallowing is opt-in; do nothing unless enabled in the config.
+    if !crate::config::get().swallow_enabled {
+        return None;
+    }
+
     // Don't let a terminal swallow another terminal — opening a new terminal from
     // your shell should never hide the one you launched it from.
     if is_terminal(appid) {

@@ -30,6 +30,13 @@ impl CompositorHandler for Rwl {
     }
 
     fn client_compositor_state<'a>(&self, client: &'a Client) -> &'a CompositorClientState {
+        // XWayland's client carries `XWaylandClientData`, not rwl's `ClientState`,
+        // so check it first — otherwise the abort below fires the moment XWayland
+        // binds its first global (e.g. wl_output) and takes the whole session down.
+        #[cfg(feature = "xwayland")]
+        if let Some(state) = client.get_data::<smithay::xwayland::XWaylandClientData>() {
+            return &state.compositor_state;
+        }
         let Some(state) = client.get_data::<ClientState>() else {
             std::process::abort()
         };
@@ -198,7 +205,13 @@ impl CompositorHandler for Rwl {
                 // Subsequent commits: check whether the initial configure has
                 // been sent.  This is a safety net for the rare case where
                 // arrange_all() didn't run on the very first commit.
-                let initial_sent = w.toplevel().is_some_and(|tl| {
+                //
+                // `is_none_or`: XWayland windows have no xdg toplevel and no
+                // "initial configure" concept, so treat them as already sent —
+                // otherwise every buffer commit from an X11 client (e.g. Steam
+                // rendering) would re-run arrange_all(), thrashing focus/titles
+                // and pegging the CPU.
+                let initial_sent = w.toplevel().is_none_or(|tl| {
                     smithay::wayland::compositor::with_states(tl.wl_surface(), |states| {
                         states
                             .data_map
@@ -268,6 +281,29 @@ impl CompositorHandler for Rwl {
                 if is_focused {
                     crate::features::warp::warp_cursor_to_focused(self);
                 }
+
+                // Mirror C dwl mapnotify: decide floating/centring at *map*
+                // time, not at the initial pre-buffer commit.  A fixed-size
+                // window (e.g. GIMP's splash) only commits its min==max size
+                // when it attaches its first buffer — after apply_rules() has
+                // already run and (correctly, for that moment) classified it as
+                // tiled.  dwl side-steps this by deciding floating in mapnotify;
+                // rwl re-checks here and promotes + centres if it now qualifies.
+                // Wayland toplevels only — X11 fixed-size/typed windows are
+                // handled in the XWM property_notify path.
+                if w.toplevel().is_some()
+                    && !window_is_floating(w)
+                    && !window_is_fullscreen(w)
+                    && Self::window_is_float_type(w)
+                {
+                    with_state_mut(w, |s| {
+                        s.is_floating = true;
+                        s.needs_centering = true;
+                    });
+                    // Reflow the tiled peers now that this window has left the
+                    // tiling layout; the block below positions it at centre.
+                    self.arrange_all();
+                }
             }
 
             // Centre newly-floating windows on their first buffer commit.
@@ -321,6 +357,16 @@ impl CompositorHandler for Rwl {
                         .get::<smithay::wayland::shell::xdg::XdgToplevelSurfaceData>()
                         .and_then(|d| d.lock().ok().map(|g| (g.title.clone(), g.app_id.clone())))
                 })
+            }).or_else(|| {
+                // XWayland: read WM_NAME/WM_CLASS.  Without this, `w.toplevel()` is
+                // None for X11 windows so title_now becomes None every commit,
+                // resetting last_title and firing print_status on every frame a
+                // continuously-rendering X11 app (e.g. Steam) draws — the flashing
+                // title.  Mirrors the same fallback in check_toplevel_titles.
+                #[cfg(feature = "xwayland")]
+                { w.x11_surface().map(|x| (Some(x.title()), Some(x.class()))) }
+                #[cfg(not(feature = "xwayland"))]
+                { None }
             }).unwrap_or_default();
             let (title_changed, appid_changed) = with_state(w, |s| (
                 s.last_title.as_deref() != title_now.as_deref(),

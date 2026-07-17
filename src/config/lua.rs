@@ -255,6 +255,8 @@ impl Config {
             #[cfg(feature = "pip")]
             pip:          super::settings::lua_pip_settings(g),
             #[cfg(feature = "swallow")]
+            swallow_enabled: crate::features::swallow::lua_enabled(g),
+            #[cfg(feature = "swallow")]
             swallow_terminals: crate::features::swallow::lua_parse(g),
         }
     }

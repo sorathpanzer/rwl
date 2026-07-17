@@ -223,6 +223,11 @@ impl XdgShellHandler for Rwl {
             let mon_idx = with_state(&w, |s| s.mon_idx).unwrap_or(self.sel_mon);
             #[cfg(feature = "auto-back-empty-tag")]
             let switch_to_tag = with_state(&w, |s| s.switch_to_tag).flatten();
+            // A closing floating window (dialog, splash, popup) should not drag the
+            // view to another tag — those are transient overlays, not the reason
+            // you're on this tag.  Only "real" tiled windows trigger auto-back.
+            #[cfg(feature = "auto-back-empty-tag")]
+            let was_floating = with_state(&w, |s| s.is_floating).unwrap_or(false);
 
             self.space.unmap_elem(&w);
 
@@ -230,7 +235,7 @@ impl XdgShellHandler for Rwl {
             let current_tags = self.monitors.get(mon_idx).map_or(0, Monitor::tags);
 
             #[cfg(feature = "auto-back-empty-tag")]
-            if was_visible {
+            if was_visible && !was_floating {
                 crate::features::auto_back_empty_tag::on_window_closed(
                     self, mon_idx, current_tags, switch_to_tag,
                 );

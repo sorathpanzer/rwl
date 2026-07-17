@@ -10,7 +10,7 @@
 
 use smithay::desktop::Window;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
-use smithay::utils::{Logical, Rectangle};
+use smithay::utils::{Logical, Point, Rectangle};
 use smithay::xwayland::xwm::{Reorder, ResizeEdge, XwmId};
 use smithay::xwayland::{X11Surface, X11Wm, XwmHandler};
 
@@ -50,22 +50,61 @@ impl Rwl {
     /// Rules are left un-applied (`rules_applied = false`) so the shared commit
     /// path in `handlers::compositor` applies them — and fires the open hooks —
     /// exactly as it does for Wayland windows, once the surface commits a buffer.
+    /// Centre a managed floating X11 window on its monitor's work area, then push
+    /// the position out to the client.  Uses the fixed-size hint (`min==max`) as the
+    /// size when available — splash/startup windows often map tiny and set their
+    /// real size via hints a moment later, so the raw geometry can't be trusted yet.
+    fn center_x11(&mut self, window: &Window) {
+        let Some(x11) = window.x11_surface() else { return };
+        let size = match (x11.min_size(), x11.max_size()) {
+            (Some(min), Some(max)) if min == max => min,
+            _ => x11.geometry().size,
+        };
+        if size.w <= 0 || size.h <= 0 {
+            return;
+        }
+        let mon_idx = with_state(window, |s| s.mon_idx).unwrap_or(self.sel_mon);
+        let Some((origin, work)) = self.monitors.get(mon_idx).map(|m| (m.m.loc, m.w.size)) else {
+            return;
+        };
+        let loc = Point::from((
+            origin.x + (work.w - size.w) / 2,
+            origin.y + (work.h - size.h) / 2,
+        ));
+        with_state_mut(window, |s| s.saved_loc = Some(loc));
+        self.space.map_element(window.clone(), loc, false);
+        let _ = x11.configure(Rectangle::new(loc, size));
+        self.schedule_render();
+    }
+
     fn map_x11_window(&mut self, surface: &X11Surface) {
         let window = Window::new_x11_window(surface.clone());
 
         let sel_mon = self.sel_mon;
-        let (loc, initial_tags) = self
+        let (base_loc, initial_tags) = self
             .sel_monitor()
-            .map_or_else(|| ((0, 0).into(), 1), |mon| (mon.w.loc, mon.tags()));
+            .map_or_else(|| (Point::from((0, 0)), 1), |mon| (mon.w.loc, mon.tags()));
+
+        let float = Self::window_is_float_type(&window);
+
         with_state_mut(&window, |s| {
             s.tags = initial_tags;
             s.mon_idx = sel_mon;
+            if float {
+                s.is_floating = true;
+            }
         });
 
-        self.space.map_element(window.clone(), loc, true);
+        self.space.map_element(window.clone(), base_loc, true);
         self.windows.insert(0, window.clone());
         if let Some(wl) = surface.wl_surface() {
             self.window_map.insert(wl, window.clone());
+        }
+        // Centre a floating window on its monitor's work area (like mango's default
+        // setclient_coordinate_center).  Uses the fixed-size hint when present, so
+        // it's correct even before the client's first buffer.
+        if float {
+            self.center_x11(&window);
         }
 
         // Focus the freshly-mapped window and re-tile.  focus_window handles the
@@ -113,10 +152,28 @@ impl Rwl {
         self.windows.retain(|w| w != &window);
         self.focus_stack.retain(|w| w != &window);
 
+        // A managed window just closed.  Dismiss any override-redirect popups
+        // (menus, tooltips): clients like Steam orphan their open menu when their
+        // window is closed out from under them — never sending an UnmapNotify — so
+        // it would otherwise linger on screen forever.  Menus are transient and
+        // re-created on demand, so clearing them here is safe.
+        self.dismiss_x11_popups();
+
         let top = self.focused_window().cloned();
         self.focus_window(top);
         self.arrange_all();
         crate::ipc::print_status(self);
+    }
+
+    /// Unmap and drop every override-redirect popup (menu/tooltip).
+    fn dismiss_x11_popups(&mut self) {
+        if self.x11_or_windows.is_empty() {
+            return;
+        }
+        for w in std::mem::take(&mut self.x11_or_windows) {
+            self.space.unmap_elem(&w);
+        }
+        self.schedule_render();
     }
 }
 
@@ -145,6 +202,39 @@ impl XwmHandler for Rwl {
         self.map_x11_override_redirect(&window);
     }
 
+    fn property_notify(
+        &mut self,
+        _xwm: XwmId,
+        window: X11Surface,
+        property: smithay::xwayland::xwm::WmWindowProperty,
+    ) {
+        use smithay::xwayland::xwm::WmWindowProperty;
+        // Splash/startup windows (GIMP, LibreOffice, …) map first and set their
+        // window type / fixed-size hints a beat later.  Re-evaluate the float
+        // heuristic when those properties arrive — as dwl/mango do — so such a
+        // window becomes floating and gets centred instead of staying tiled in
+        // the corner.  Only ever promotes tiled→floating; never the reverse.
+        if !matches!(
+            property,
+            WmWindowProperty::WindowType
+                | WmWindowProperty::TransientFor
+                | WmWindowProperty::NormalHints
+                | WmWindowProperty::Hints
+        ) {
+            return;
+        }
+        let Some(w) = self.window_for_x11(&window) else { return };
+        let (is_or, already) =
+            with_state(&w, |s| (s.is_override_redirect, s.is_floating)).unwrap_or((true, true));
+        if is_or || already || !Self::window_is_float_type(&w) {
+            return;
+        }
+        with_state_mut(&w, |s| s.is_floating = true);
+        self.center_x11(&w);
+        self.arrange_all();
+        crate::ipc::print_status(self);
+    }
+
     fn unmapped_window(&mut self, _xwm: XwmId, window: X11Surface) {
         self.unmap_x11_window(&window);
         if !window.is_override_redirect() {
@@ -169,27 +259,54 @@ impl XwmHandler for Rwl {
     ) {
         // Honour self-configure only for floating / unmanaged windows; tiled
         // windows are sized by the layout, so re-assert their current geometry.
-        let is_floating = self
-            .window_for_x11(&window)
-            .and_then(|w| with_state(&w, |s| s.is_floating))
-            .unwrap_or(true);
+        let managed = self.window_for_x11(&window);
+        let is_floating = managed
+            .as_ref()
+            .is_none_or(|w| {
+                with_state(w, |s| s.is_override_redirect || s.is_floating).unwrap_or(true)
+            });
+
+        if !is_floating {
+            // Tiled: deny the move/resize, re-assert the layout geometry.
+            let _ = window.configure(window.geometry());
+            return;
+        }
 
         let mut geo = window.geometry();
-        if is_floating {
-            if let Some(x) = x {
-                geo.loc.x = x;
-            }
-            if let Some(y) = y {
-                geo.loc.y = y;
-            }
-            if let Some(w) = w {
-                geo.size.w = i32::try_from(w).unwrap_or(geo.size.w);
-            }
-            if let Some(h) = h {
-                geo.size.h = i32::try_from(h).unwrap_or(geo.size.h);
-            }
+        // Base the position on rwl's tracked location (saved_loc), NOT the X
+        // geometry: after we relocate a window (e.g. centring), window.geometry()
+        // still lags at the old spot until the client round-trips, so a size-only
+        // configure (x/y = None, as a resize sends) would otherwise snap it back.
+        if let Some(sl) = managed
+            .as_ref()
+            .and_then(|w| with_state(w, |s| s.saved_loc).flatten())
+        {
+            geo.loc = sl;
+        }
+        if let Some(x) = x {
+            geo.loc.x = x;
+        }
+        if let Some(y) = y {
+            geo.loc.y = y;
+        }
+        if let Some(w) = w {
+            geo.size.w = i32::try_from(w).unwrap_or(geo.size.w);
+        }
+        if let Some(h) = h {
+            geo.size.h = i32::try_from(h).unwrap_or(geo.size.h);
         }
         let _ = window.configure(geo);
+
+        // Actually move the window to where the client asked (dwl does this in
+        // configurex11 → resize).  Without relocating it in the space and recording
+        // saved_loc, rwl would ack the move but keep drawing it at the old spot —
+        // which is why Steam's login window stayed in the corner instead of the
+        // centre it configures itself to.
+        if let Some(w) = managed {
+            self.space.map_element(w.clone(), geo.loc, false);
+            with_state_mut(&w, |s| s.saved_loc = Some(geo.loc));
+            self.schedule_render();
+        }
     }
 
     fn configure_notify(

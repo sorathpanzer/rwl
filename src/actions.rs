@@ -536,6 +536,13 @@ impl Rwl {
             if let Some(tl) = w.toplevel() {
                 tl.send_close();
             }
+            // XWayland windows have no xdg toplevel; ask the X client to close
+            // (sends WM_DELETE_WINDOW, or destroys the window if it doesn't
+            // support the protocol).  Without this, Mod+Q does nothing on X apps.
+            #[cfg(feature = "xwayland")]
+            if let Some(x11) = w.x11_surface() {
+                let _ = x11.close();
+            }
         }
     }
 

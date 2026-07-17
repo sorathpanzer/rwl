@@ -148,27 +148,43 @@ fn run(startup_cmd: Option<String>) -> Result<()> {
     }
 
     // Start XWayland so X11 apps (Steam, Proton games, legacy tools) can connect.
-    // Must precede startup commands so DISPLAY is available to whatever they launch.
+    // Readiness arrives asynchronously once the event loop runs (below); the X11
+    // window manager attaches then and `configure_child` starts exporting DISPLAY
+    // to programs spawned afterwards.  We deliberately do NOT pump the event loop
+    // here to wait for it — driving renders/clients mid-startup is fragile — so
+    // autostart X11 apps launched in the same breath may miss DISPLAY on the very
+    // first run; interactively-launched apps always get it.
+    // Escape hatch: `RWL_NO_XWAYLAND=1 rwl` skips spawning XWayland entirely,
+    // for isolating XWayland-related startup problems without a rebuild.
     #[cfg(feature = "xwayland")]
-    {
+    if std::env::var_os("RWL_NO_XWAYLAND").is_none() {
         state.start_xwayland();
-        // Readiness (and the DISPLAY number) arrives asynchronously via the event
-        // source inserted above.  Pump the loop briefly so `configure_child` can
-        // export DISPLAY to the startup/autostart programs spawned just below;
-        // XWayland normally becomes ready in a few ms.  If it doesn't, we proceed
-        // anyway — later (interactive) spawns still pick up DISPLAY once Ready fires.
-        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(300);
+        // XWayland reports its DISPLAY asynchronously (a few hundred ms after
+        // spawn).  Pump the event loop until it's ready — with a cap — so the
+        // startup/autostart programs spawned just below inherit DISPLAY via
+        // `configure_child`.  Without this, an X11 app (or a terminal that later
+        // launches one, e.g. Steam) autostarted at login gets no DISPLAY and
+        // fails with "Check your DISPLAY environment variable".  The pump exits
+        // the instant DISPLAY arrives, so the cap only bites if XWayland stalls.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(1500);
         while state.xdisplay.is_none() && std::time::Instant::now() < deadline {
-            if let Err(e) = event_loop
-                .dispatch(Some(std::time::Duration::from_millis(20)), &mut state)
+            if let Err(e) =
+                event_loop.dispatch(Some(std::time::Duration::from_millis(20)), &mut state)
             {
                 tracing::warn!("event loop error while waiting for XWayland: {e}");
                 break;
             }
+            // Flush pending events to clients — XWayland can't finish its init
+            // handshake (and therefore never reports Ready) until it receives our
+            // replies.  `run()` does this in its post-dispatch callback; the pump
+            // must do it too, or the loop below always times out.
+            state.display_handle.flush_clients().ok();
         }
         if state.xdisplay.is_none() {
-            tracing::warn!("XWayland not ready in time; startup X11 apps may not get DISPLAY");
+            tracing::warn!("XWayland not ready in time; autostart X11 apps may not get DISPLAY");
         }
+    } else {
+        tracing::info!("RWL_NO_XWAYLAND set — XWayland disabled");
     }
 
     if let Some(cmd) = startup_cmd {
@@ -244,7 +260,13 @@ fn run(startup_cmd: Option<String>) -> Result<()> {
         match std::io::pipe() {
             Ok((reader, writer)) => {
                 state.ipc_out = Some(writer);
-                features::bar::start(reader, crate::config::get().bar.clone(), state.socket_name.clone(), Arc::clone(&state.bar_has_notification));
+                // Pass XWayland's DISPLAY so prompt/block-click launches of X11
+                // apps (e.g. Steam) inherit it; None when XWayland is off/not ready.
+                #[cfg(feature = "xwayland")]
+                let xdisplay = state.xdisplay.map(|n| format!(":{n}"));
+                #[cfg(not(feature = "xwayland"))]
+                let xdisplay: Option<String> = None;
+                features::bar::start(reader, crate::config::get().bar.clone(), state.socket_name.clone(), Arc::clone(&state.bar_has_notification), xdisplay);
             }
             Err(e) => tracing::warn!("[bar] failed to create IPC pipe: {e}"),
         }

@@ -1036,11 +1036,11 @@ impl State {
         command
             .arg("-c")
             .arg(&action.click)
-            .env_remove("DISPLAY")
             .env("WAYLAND_DISPLAY", &self.wayland_socket)
             .env("XDG_SESSION_TYPE", "wayland")
             .env("XDG_CURRENT_DESKTOP", "rwl")
             .env("BLOCK_BUTTON", button.to_string());
+        apply_display_env(&mut command);
         {
             let cfg = crate::config::get();
             if let Some(ref theme) = cfg.cursor_theme {
@@ -1109,10 +1109,10 @@ impl State {
                     command
                         .arg("-c")
                         .arg(&cmd)
-                        .env_remove("DISPLAY")
                         .env("WAYLAND_DISPLAY", &state.wayland_socket)
                         .env("XDG_SESSION_TYPE", "wayland")
                         .env("XDG_CURRENT_DESKTOP", "rwl");
+                    apply_display_env(&mut command);
                     {
                         let cfg = crate::config::get();
                         if let Some(ref theme) = cfg.cursor_theme {
@@ -1840,7 +1840,28 @@ pub fn send_bar_command(cmd: &str) {
 /// `WAYLAND_DISPLAY` is set in the environment.  The caller must pass the
 /// read end of the IPC pipe; the compositor writes status lines to the write
 /// end via `state.ipc_out`.
-pub fn start(reader: PipeReader, settings: BarSettings, wayland_socket: String, notification_flag: Arc<AtomicBool>) {
+/// `XWayland` `DISPLAY` (e.g. ":1") exported to bar-launched X11 clients, or `None`
+/// when `XWayland` is disabled or wasn't ready when the bar started.  Set once from
+/// [`start`]; the bar runs on a single thread so a plain `OnceLock` suffices.
+static BAR_DISPLAY: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+
+/// Point a bar-spawned child at `XWayland` so X11 apps (Steam, etc.) launched from
+/// the prompt or a block click find a display; otherwise strip any inherited
+/// `DISPLAY`.  The embedded bar is a thread sharing the compositor's environment,
+/// which has no `DISPLAY`, so this must be applied explicitly.
+fn apply_display_env(command: &mut std::process::Command) {
+    match BAR_DISPLAY.get().and_then(std::option::Option::as_ref) {
+        Some(disp) => {
+            command.env("DISPLAY", disp);
+        }
+        None => {
+            command.env_remove("DISPLAY");
+        }
+    }
+}
+
+pub fn start(reader: PipeReader, settings: BarSettings, wayland_socket: String, notification_flag: Arc<AtomicBool>, xdisplay: Option<String>) {
+    let _ = BAR_DISPLAY.set(xdisplay);
     let ipc_fd: OwnedFd = reader.into();
     if let Err(e) = thread::Builder::new().name("bar".into()).spawn(move || run_bar(ipc_fd, settings, wayland_socket, &notification_flag)) {
         tracing::warn!("[bar] failed to spawn bar thread: {e}");

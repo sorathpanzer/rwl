@@ -358,9 +358,9 @@ pub struct Rwl {
 
     // ---- XWayland ----
     /// `xwayland_shell_v1` global — lets `XWayland` associate its X11 windows with
-    /// their backing `wl_surface`s.  Kept alive for the whole session.
+    /// their backing `wl_surface`s.  `None` when `RWL_NO_XWAYLAND` disables `XWayland`.
     #[cfg(feature = "xwayland")]
-    pub xwayland_shell_state: XWaylandShellState,
+    pub xwayland_shell_state: Option<XWaylandShellState>,
     /// The X11 window manager, set once `XWayland` reports Ready. `None` until then
     /// (and on the winit backend if `XWayland` fails to start).
     #[cfg(feature = "xwayland")]
@@ -497,8 +497,14 @@ impl Rwl {
             cursor_shape_manager:           CursorShapeManagerState::new::<Self>(&display_handle),
         };
 
+        // Gate the xwayland_shell global on the same env kill-switch as the spawn,
+        // so `RWL_NO_XWAYLAND=1` fully disables all XWayland runtime code.
         #[cfg(feature = "xwayland")]
-        let xwayland_shell_state = XWaylandShellState::new::<Self>(&display_handle);
+        let xwayland_shell_state = if std::env::var_os("RWL_NO_XWAYLAND").is_none() {
+            Some(XWaylandShellState::new::<Self>(&display_handle))
+        } else {
+            None
+        };
 
         // Seat
         let seat = seat_state.new_wl_seat(&display_handle, "seat0");
@@ -974,11 +980,34 @@ impl Rwl {
     /// either axis, both non-zero) are intrinsically floating.  Checks both
     /// current and pending state so apps that send constraints before their
     /// first commit (e.g. ripdrag/dragon) are also caught.
-    fn window_is_float_type(window: &Window) -> bool {
+    pub(crate) fn window_is_float_type(window: &Window) -> bool {
         // XWayland: popups/menus and fixed-size (min==max) windows float.
         #[cfg(feature = "xwayland")]
         if let Some(x) = window.x11_surface() {
+            use smithay::xwayland::xwm::WmWindowType;
             if x.is_popup() {
+                return true;
+            }
+            // Float typed auxiliary windows — dialogs, utility panels, splash
+            // screens, toolbars, menus, tooltips.  Steam's login/splash popups are
+            // typed this way; without this they get tiled (wrong size + position)
+            // and some clients fight the resize, which manifests as a flickering
+            // title.  Only truly document-like `Normal`/`Desktop`/`Dock` tile.
+            if let Some(t) = x.window_type()
+                && matches!(
+                    t,
+                    WmWindowType::Dialog
+                        | WmWindowType::Utility
+                        | WmWindowType::Splash
+                        | WmWindowType::Toolbar
+                        | WmWindowType::Menu
+                        | WmWindowType::DropdownMenu
+                        | WmWindowType::PopupMenu
+                        | WmWindowType::Tooltip
+                        | WmWindowType::Notification
+                        | WmWindowType::Combo
+                )
+            {
                 return true;
             }
             if let (Some(min), Some(max)) = (x.min_size(), x.max_size()) {
@@ -1082,7 +1111,11 @@ impl Rwl {
             .fold(
                 RuleAccum {
                     tags:         0,
-                    is_floating:  Self::window_is_float_type(window) || is_dialog,
+                    // OR the current flag so a float decision already made at map
+                    // time (XWayland fixed-size/typed windows whose hints have since
+                    // changed — see handlers::xwayland::map_x11_window) is preserved.
+                    is_floating:  Self::window_is_float_type(window) || is_dialog
+                        || with_state(window, |s| s.is_floating).unwrap_or(false),
                     scratch_key:  '\0',
                     monitor:      -1,
                     switch_to_tag: None,
@@ -1141,10 +1174,18 @@ impl Rwl {
             }
         }
 
+        // XWayland windows place themselves (honoured in configure_request, as dwl
+        // does) — so don't run rwl's auto-centring for them; it would override the
+        // client's own position.  Wayland floating windows still get centred.
+        #[cfg(feature = "xwayland")]
+        let center = is_floating && window.x11_surface().is_none();
+        #[cfg(not(feature = "xwayland"))]
+        let center = is_floating;
+
         with_state_mut(window, |s| {
             s.tags = effective_tags;
             s.is_floating = is_floating;
-            s.needs_centering = is_floating;
+            s.needs_centering = center;
             s.scratch_key = scratch_key;
             s.mon_idx = mon_idx;
             // Seed the IPC cache so format_status() can avoid re-locking
@@ -2078,7 +2119,11 @@ impl XdgDialogHandler for Rwl {
 #[cfg(feature = "xwayland")]
 impl XWaylandShellHandler for Rwl {
     fn xwayland_shell_state(&mut self) -> &mut XWaylandShellState {
-        &mut self.xwayland_shell_state
+        // Only reached when a client has bound the xwayland_shell global, which
+        // only exists when we created it (XWayland enabled), so this is Some.
+        self.xwayland_shell_state
+            .as_mut()
+            .unwrap_or_else(|| unreachable!("xwayland_shell_state accessed while XWayland disabled"))
     }
 
     /// `XWayland` has bound a `wl_surface` to an X11 window.  If that window is
