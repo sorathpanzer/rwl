@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use smithay::desktop::{layer_map_for_output, PopupManager, Space, Window, WindowSurfaceType};
 use smithay::input::keyboard::{KeyboardHandle, ModifiersState, XkbConfig};
-use smithay::input::pointer::{CursorIcon, CursorImageStatus, PointerHandle};
+use smithay::input::pointer::{CursorIcon, CursorImageStatus, MotionEvent, PointerHandle};
 use smithay::input::{Seat, SeatState};
 use smithay::output::Output;
 use smithay::reexports::calloop::generic::Generic;
@@ -967,6 +967,30 @@ impl Rwl {
             })
     }
 
+    /// Re-evaluate what the (stationary) pointer is over and send Smithay a
+    /// synthetic no-move motion so it emits the right enter/leave.
+    ///
+    /// Pointer focus is normally only recomputed on real motion events. When the
+    /// scene under a still pointer changes on its own — a tag switch hides the
+    /// window beneath the cursor, a window closes, layout re-tiles — Smithay keeps
+    /// routing to the old surface until the next motion. Without this, clicking
+    /// after a keyboard tag switch is delivered to the now-hidden window (e.g. a
+    /// YouTube video on another tag toggles play/pause). Call after any operation
+    /// that maps/unmaps windows without a pointer event.
+    pub fn refresh_pointer_focus(&mut self) {
+        // A grab (move/resize) owns pointer routing; don't disturb it.
+        if self.locked { return; }
+        let Some(ptr) = self.pointer.clone() else { return };
+        if ptr.is_grabbed() { return; }
+        let loc = ptr.current_location();
+        let under = self.pointer_focus_under(loc);
+        let serial = SERIAL_COUNTER.next_serial();
+        #[allow(clippy::cast_possible_truncation)]
+        let time = std::time::Duration::from(self.clock.now()).as_millis() as u32;
+        ptr.motion(self, under, &MotionEvent { location: loc, serial, time });
+        ptr.frame(self);
+    }
+
     #[must_use]
     #[allow(clippy::cast_sign_loss)]
     pub fn target_monitor_for_window(&self, rule_monitor: i32) -> usize {
@@ -1765,6 +1789,10 @@ impl Rwl {
         }
         self.schedule_render();
         crate::ipc::print_status(self);
+        // Windows were just mapped/unmapped by tag/visibility; a stationary
+        // pointer may now be over a different surface (or none). Re-route focus so
+        // a click isn't delivered to a hidden window on another tag.
+        self.refresh_pointer_focus();
     }
 
     /// Unmap slide-out windows whose animation has finished (`slide_start` cleared
