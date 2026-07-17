@@ -272,6 +272,16 @@ fn run(startup_cmd: Option<String>) -> Result<()> {
         }
     }
 
+    // Push the current tag/layout/title state once, now that the status pipe is
+    // wired up. A freshly-started bar draws its first frame before any event
+    // (tag switch, window map, focus change) fires a status update, so without
+    // this it stays blank until the user changes tag or opens a window. The
+    // winit backend makes it worse: `output_added` ran before `ipc_out` was set,
+    // so that monitor's initial status went to stdout instead of the bar.
+    if state.ipc_out.is_some() {
+        crate::ipc::print_status(&mut state);
+    }
+
     // Poll for title/app-id changes that arrive without a wl_surface.commit
     // (Firefox tab-switch pattern). 250 ms is imperceptible to users and avoids
     // the 60 wakeups/sec that a 16 ms event-loop timeout would cause when idle.
