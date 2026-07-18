@@ -1,40 +1,19 @@
 //! Optional compositor features, each gated behind a Cargo feature flag.
+//!
+//! Features are grouped into category modules ([`shell`], [`effects`],
+//! [`windows`], [`session`], [`integration`]). Each category re-exports its
+//! members so they remain reachable as `crate::features::<name>`.
 
-#[cfg(feature = "ipc")]
-pub mod ipc;
+pub mod shell;
+pub mod effects;
+pub mod windows;
+pub mod session;
+pub mod integration;
 
-#[cfg(feature = "scratchpad")]
-pub mod scratchpad;
-#[cfg(feature = "bar")]
-pub mod bar;
-#[cfg(feature = "rounded-corners")]
-pub mod rounded_corners;
-#[cfg(feature = "warp")]
-pub mod warp;
-#[cfg(feature = "fade")]
-pub mod fade;
-#[cfg(feature = "tag-transition")]
-pub mod tag_transition;
-#[cfg(feature = "gaps")]
-pub mod gaps;
-#[cfg(feature = "winit")]
-pub mod winit;
-#[cfg(feature = "pertag-layouts")]
-pub mod pertag_layouts;
-#[cfg(feature = "startup-cmds")]
-pub mod startup_cmds;
-#[cfg(feature = "auto-back-empty-tag")]
-pub mod auto_back_empty_tag;
+pub use effects::*;
+pub use integration::*;
+pub use session::*;
+pub use shell::*;
+pub use windows::*;
+
 pub mod layout;
-#[cfg(feature = "overview")]
-pub mod overview;
-#[cfg(feature = "hooks")]
-pub mod hooks;
-#[cfg(feature = "pip")]
-pub mod pip;
-#[cfg(feature = "lock")]
-pub mod lock;
-#[cfg(feature = "wallpaper")]
-pub mod wallpaper;
-#[cfg(feature = "swallow")]
-pub mod swallow;

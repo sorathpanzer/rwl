@@ -97,7 +97,7 @@ strip = false
 
 [dependencies]
 # Bar feature: embedded azoth status bar
-azoth-render             = { path = "src/features/bar/azoth-render", optional = true }
+azoth-render             = { path = "src/features/shell/bar/azoth-render", optional = true }
 wayland-client           = { version = "0.31", optional = true }
 wayland-backend          = { version = "0.3",  optional = true }
 wayland-protocols        = { version = "0.32", features = ["client", "unstable"], optional = true }
