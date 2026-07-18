@@ -130,7 +130,7 @@ DRM devices discovered at init are opened lazily once `SessionEvent::
 ActivateSession` fires on the first loop tick, which is also what makes VT
 switching and suspend/resume work.
 
-### winit ([`src/features/winit.rs`](../src/features/winit.rs), `winit` feature)
+### winit ([`src/features/integration/winit.rs`](../src/features/integration/winit.rs), `winit` feature)
 
 Runs rwl nested as an EGL-backed window inside an existing Wayland/X11
 compositor — the counterpart used for development. Selected automatically when
@@ -148,7 +148,7 @@ corners), fullscreen surfaces, overview/PiP thumbnails, animation elements
 
 Two feature integrations touch the render path directly:
 
-- **Rounded corners** ([`src/features/rounded_corners.rs`](../src/features/rounded_corners.rs))
+- **Rounded corners** ([`src/features/effects/rounded_corners.rs`](../src/features/effects/rounded_corners.rs))
   contributes shader-based render elements, re-exported through `render.rs`.
 - **Overview / PiP** reuse Smithay's `constrain_space_element` to scale a
   window's *live* render elements into a target rectangle, producing thumbnails
@@ -161,7 +161,7 @@ feature), the render path composites **only** cursor + black backdrop
 (+ the native locker's password-progress bar), never client or layer content,
 and screencopy requests are refused (see
 [`src/handlers/screencopy.rs`](../src/handlers/screencopy.rs) and
-[`src/features/lock.rs`](../src/features/lock.rs)).
+[`src/features/session/lock.rs`](../src/features/session/lock.rs)).
 
 ## Protocol handlers
 
@@ -191,17 +191,18 @@ Two related but distinct mechanisms:
   the dwl `printstatus()` format (seven lines per monitor: title, appid,
   fullscreen, floating, selmon, tags, layout) and writes it to the `ipc_out`
   pipe — consumed by an external bar or the embedded bar thread.
-- **Command socket** ([`src/features/ipc/`](../src/features/ipc/), `ipc`
+- **Command socket** ([`src/features/integration/ipc/`](../src/features/integration/ipc/), `ipc`
   feature) — `server.rs` binds `rwl.sock` inside the compositor and dispatches
   text commands to `Rwl`; `mod.rs` is the `rwl msg` client. Subscribers get
   status pushed on every state change. See [`IPC.md`](IPC.md).
 
 ## Lua hooks (`hooks` feature)
 
-[`src/features/hooks.rs`](../src/features/hooks.rs) keeps the config Lua VM alive
+[`src/features/integration/hooks.rs`](../src/features/integration/hooks.rs) keeps the config Lua VM alive
 after loading so user callbacks (`on_window_open`, `on_window_close`,
-`on_tag_switch`, `on_focus`, `on_title_change`, `on_fullscreen`,
-`on_layout_change`, `on_monitor_add`, `on_monitor_remove`, `on_startup`) can fire
+`on_tag_switch`, `on_focus`, `on_layout_change`, `on_monitor_add`, `on_urgency`,
+`on_lock`/`on_unlock`, … — see
+[`CONFIGURATION.md`](CONFIGURATION.md#lua-hooks) for the full set) can fire
 on compositor events. Because a callback runs *inside* the `&mut Rwl` borrow that
 raised the event, the `rwl.*` / `win:*` action helpers do not mutate state
 directly — they enqueue a `HookCmd`, and `drain()` applies the queue at a safe
@@ -222,7 +223,7 @@ directory ships XML the embedded **bar client** binds against:
 
 ## The `azoth-render` subcrate
 
-[`src/features/bar/azoth-render/`](../src/features/bar/azoth-render/) is a small
+[`src/features/shell/bar/azoth-render/`](../src/features/shell/bar/azoth-render/) is a small
 in-tree crate providing a *safe* API over the C libraries **fcft** (font
 rendering) and **pixman** (software compositing) for the bar. All `unsafe` code
 is contained there; its `build.rs` links `fcft` and `pixman-1` via `pkg-config`.

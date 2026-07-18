@@ -4,6 +4,11 @@ rwl is configured with a single Lua file at **`~/.config/rwl/config.lua`**
 (`$HOME/.config/rwl/config.lua`; `/root/.config/rwl/config.lua` when `HOME` is
 unset). It is read at startup and re-read on the `reload_config` action.
 
+> **Starting point:** a complete, commented config is in
+> [`examples/config/`](../examples/config/) — copy `config.lua` (and the optional
+> `keys.lua` / `bar.lua` it `dofile`s) into `~/.config/rwl/`. The schema below is
+> the reference; that directory is the quickest way to a working setup.
+
 Key points:
 
 - **Everything is optional.** Each field falls back to a compiled-in default
@@ -616,7 +621,7 @@ returns, and once per event-loop iteration). This avoids re-entering the
 The selected-monitor / focused-window helpers (`zoom`, `inc_nmaster`,
 `set_mfact`, `focus_monitor`, `toggle_view`) act exactly like the matching
 keybinding. See
-[`src/features/hooks.rs`](../src/features/hooks.rs) for the full API and the
+[`src/features/integration/hooks.rs`](../src/features/integration/hooks.rs) for the full API and the
 `HookCmd` command set.
 
 ### Scriptable layouts (`on_arrange`)

@@ -7,7 +7,7 @@ rwl exposes two related mechanisms:
 2. A **status stream** (dwl-compatible) written to a pipe, consumed by a status
    bar.
 
-Source: [`src/features/ipc/`](../src/features/ipc/) (socket server + `rwl msg`
+Source: [`src/features/integration/ipc/`](../src/features/integration/ipc/) (socket server + `rwl msg`
 client) and [`src/ipc.rs`](../src/ipc.rs) (status formatting).
 
 ---
@@ -107,7 +107,7 @@ rwl msg -toggle-visibility all
 ## Structured events (`clients` / `watch`)
 
 For scripting (window switchers, activity loggers, external panels), the socket
-also speaks JSON. Source: [`src/features/ipc/event.rs`](../src/features/ipc/event.rs).
+also speaks JSON. Source: [`src/features/integration/ipc/event.rs`](../src/features/integration/ipc/event.rs).
 
 **`rwl msg clients`** prints a one-shot JSON array of every window:
 
@@ -188,8 +188,17 @@ command socket to arbitrary clients.
 ## Relationship to keybinding actions
 
 Most WM commands map one-to-one to a keybinding `Action` (see
-[CONFIGURATION.md](CONFIGURATION.md#actions)). Whether an action is triggered by
-a key, a pointer button, or `rwl msg`, it flows through the same
-`Rwl::dispatch()` in [`src/actions.rs`](../src/actions.rs). This means anything
-you can bind to a key you can also drive from a script via `rwl msg`, and
-vice-versa.
+[CONFIGURATION.md](CONFIGURATION.md#actions)). Whether such an action is
+triggered by a key, a pointer button, or `rwl msg`, it flows through the same
+`Rwl::dispatch()` in [`src/actions.rs`](../src/actions.rs), so most things you
+can bind to a key you can also drive from a script, and vice-versa.
+
+The correspondence is not total, though. A few actions are intentionally *not*
+exposed over the socket: the pointer-only grabs (`move` / `resize`), the
+overview, picture-in-picture, and scratchpad toggles, `reset_layout`, and the
+Lua-macro `call` action. Conversely, a handful of commands (`status`, `clients`,
+`info`, `subscribe`, `watch`, `focusurgent`, `wallpaper`, and the per-output
+`view` / `toggleview` / `setlayout`) have no single keybinding `Action`. Each
+action's canonical command name is returned by `Action::ipc_command()` in
+[`src/config/types.rs`](../src/config/types.rs), and a test in the IPC server
+keeps that mapping honest against the commands the socket actually handles.

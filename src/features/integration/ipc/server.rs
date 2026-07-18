@@ -150,6 +150,27 @@ fn find_monitor_idx(state: &Rwl, name: &str) -> Option<usize> {
     }
 }
 
+/// Every command word `cmd_handle` / `cmd_dispatch` recognizes.
+///
+/// This is the authoritative list of names the socket accepts; it backs the
+/// `action_ipc_names_are_handled` parity test below (which checks that every
+/// name [`Action::ipc_command`] hands out is actually one the server dispatches).
+/// Keep it in sync with the `match cmd` arms in `cmd_dispatch` (and the
+/// `subscribe` / `watch` fast-paths in `cmd_handle`) — the test only sees this
+/// list, so a command dropped from the match but left here would slip through.
+#[cfg(test)]
+const WM_COMMANDS: &[&str] = &[
+    // Queries / streams and bespoke handlers that do not go through `Action`.
+    "status", "clients", "info", "subscribe", "watch", "focusurgent",
+    "view", "toggleview", "setlayout", "wallpaper",
+    // Action-backed commands.
+    "tag", "toggletag", "focusstack", "incnmaster", "setmfact",
+    "viewnextocctag", "focusmon", "tagmon", "chvt", "viewtag_spawn", "spawn",
+    "cyclelayout", "zoom", "viewprev", "killclient", "togglefloating",
+    "togglefullscreen", "togglepassthrough", "reloadconfig", "quit",
+    "togglebar", "barprompt", "togglegaps", "lock",
+];
+
 #[allow(clippy::too_many_lines)]
 fn cmd_dispatch(line: &str, stream: &mut UnixStream, state: &mut Rwl) {
     let words: Vec<&str> = line.split_whitespace().collect();
@@ -378,5 +399,87 @@ fn cmd_dispatch(line: &str, stream: &mut UnixStream, state: &mut Rwl) {
             }
         }
         _ => tracing::debug!("[wm-ipc] unknown command: {cmd}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::WM_COMMANDS;
+    use crate::config::Action;
+
+    /// One value of every user-facing `Action` variant. The compiler-enforced
+    /// guard is [`Action::ipc_command`]'s exhaustive match (a new variant fails
+    /// to compile there); this list only needs to exercise the variants that
+    /// hand out a command name.
+    fn sample_actions() -> Vec<Action> {
+        vec![
+            Action::Spawn(vec!["foot".into()]),
+            Action::FocusStack(1),
+            Action::IncNmaster(1),
+            Action::SetMfact(0.05),
+            Action::Zoom,
+            Action::ViewPrev,
+            Action::ViewNextOccTag(1),
+            Action::KillClient,
+            Action::SetLayout(0),
+            Action::CycleLayout,
+            Action::ToggleFloating,
+            Action::ToggleFullscreen,
+            Action::TogglePassthrough,
+            Action::View(1),
+            Action::ViewTagSpawn(1),
+            Action::ToggleView(1),
+            Action::Tag(1),
+            Action::ToggleTag(1),
+            Action::FocusMon(1),
+            Action::TagMon(1),
+            Action::Chvt(1),
+            Action::ReloadConfig,
+            Action::Quit,
+            Action::Move,
+            Action::Resize,
+            #[cfg(feature = "pertag-layouts")]
+            Action::ResetLayout,
+            #[cfg(feature = "gaps")]
+            Action::ToggleGaps,
+            #[cfg(feature = "bar")]
+            Action::ToggleBar,
+            #[cfg(feature = "bar")]
+            Action::BarPrompt,
+            #[cfg(feature = "lock")]
+            Action::Lock,
+        ]
+    }
+
+    /// Every command name an `Action` advertises over IPC must be one the socket
+    /// server actually dispatches — otherwise `docs/IPC.md`'s "anything you can
+    /// bind you can drive from `rwl msg`" promise silently rots.
+    #[test]
+    fn action_ipc_names_are_handled() {
+        for action in sample_actions() {
+            if let Some(name) = action.ipc_command() {
+                assert!(
+                    WM_COMMANDS.contains(&name),
+                    "Action {action:?} maps to `rwl msg {name}`, but the server \
+                     does not handle that command (missing from WM_COMMANDS / \
+                     cmd_dispatch)",
+                );
+            }
+        }
+    }
+
+    /// Two actions must not claim the same command word.
+    #[test]
+    fn action_ipc_names_are_unique() {
+        let mut seen = Vec::new();
+        for action in sample_actions() {
+            if let Some(name) = action.ipc_command() {
+                assert!(
+                    !seen.contains(&name),
+                    "command `{name}` is claimed by more than one Action",
+                );
+                seen.push(name);
+            }
+        }
     }
 }

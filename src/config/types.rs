@@ -236,6 +236,73 @@ pub enum Action {
     LockConsume,
 }
 
+#[cfg(feature = "ipc")]
+impl Action {
+    /// The canonical `rwl msg` command word that triggers this action, or `None`
+    /// when the action is intentionally not exposed over the command socket:
+    /// pointer-only grabs (`Move`/`Resize`), internal routing actions
+    /// (`OverviewNav`/`LockConsume`), the Lua-macro `call` action, and the
+    /// scratchpad / overview / PiP toggles that currently have no socket command.
+    ///
+    /// The match is exhaustive on purpose: adding an `Action` variant forces a
+    /// decision here, and the parity test in the IPC server
+    /// ([`server.rs`](../features/integration/ipc/server.rs)) checks that every
+    /// name returned is actually handled. Keep it aligned with `docs/IPC.md` and
+    /// the action table in `docs/CONFIGURATION.md`.
+    #[must_use]
+    pub fn ipc_command(&self) -> Option<&'static str> {
+        match self {
+            Self::Spawn(_) => Some("spawn"),
+            Self::FocusStack(_) => Some("focusstack"),
+            Self::IncNmaster(_) => Some("incnmaster"),
+            Self::SetMfact(_) => Some("setmfact"),
+            Self::Zoom => Some("zoom"),
+            Self::ViewPrev => Some("viewprev"),
+            Self::ViewNextOccTag(_) => Some("viewnextocctag"),
+            Self::KillClient => Some("killclient"),
+            Self::SetLayout(_) => Some("setlayout"),
+            Self::CycleLayout => Some("cyclelayout"),
+            Self::ToggleFloating => Some("togglefloating"),
+            Self::ToggleFullscreen => Some("togglefullscreen"),
+            Self::TogglePassthrough => Some("togglepassthrough"),
+            Self::View(_) => Some("view"),
+            Self::ViewTagSpawn(_) => Some("viewtag_spawn"),
+            Self::ToggleView(_) => Some("toggleview"),
+            Self::Tag(_) => Some("tag"),
+            Self::ToggleTag(_) => Some("toggletag"),
+            Self::FocusMon(_) => Some("focusmon"),
+            Self::TagMon(_) => Some("tagmon"),
+            Self::Chvt(_) => Some("chvt"),
+            Self::ReloadConfig => Some("reloadconfig"),
+            Self::Quit => Some("quit"),
+            // Pointer-only grabs — no socket command.
+            Self::Move | Self::Resize => None,
+            #[cfg(feature = "pertag-layouts")]
+            Self::ResetLayout => None,
+            #[cfg(feature = "gaps")]
+            Self::ToggleGaps => Some("togglegaps"),
+            #[cfg(feature = "scratchpad")]
+            Self::ToggleScratch(_)
+            | Self::FocusOrToggleScratch(_)
+            | Self::FocusOrToggleMatchingScratch(_) => None,
+            #[cfg(feature = "hooks")]
+            Self::CallLua(_) => None,
+            #[cfg(feature = "bar")]
+            Self::ToggleBar => Some("togglebar"),
+            #[cfg(feature = "bar")]
+            Self::BarPrompt => Some("barprompt"),
+            #[cfg(feature = "overview")]
+            Self::ToggleOverview | Self::ToggleOverviewAll | Self::OverviewNav(_) => None,
+            #[cfg(feature = "pip")]
+            Self::TogglePip | Self::MovePip => None,
+            #[cfg(feature = "lock")]
+            Self::Lock => Some("lock"),
+            #[cfg(feature = "lock")]
+            Self::LockConsume => None,
+        }
+    }
+}
+
 #[cfg(feature = "scratchpad")]
 #[derive(Debug, Clone)]
 pub struct ScratchCmd {

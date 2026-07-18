@@ -64,7 +64,7 @@ yourself in Lua via the global `on_arrange` callback — see
 
 Related: **`pertag-layouts`** assigns layouts per tag — fixed, or chosen by the
 live tiled-window count on that tag — see
-[`src/features/pertag_layouts.rs`](../src/features/pertag_layouts.rs) and
+[`src/features/windows/pertag_layouts.rs`](../src/features/windows/pertag_layouts.rs) and
 [CONFIGURATION.md](CONFIGURATION.md#pertag_layouts-pertag-layouts-feature).
 
 ---
@@ -72,14 +72,14 @@ live tiled-window count on that tag — see
 ## Window & workspace features
 
 ### `scratchpad`
-[`src/features/scratchpad.rs`](../src/features/scratchpad.rs) — dropdown-style
+[`src/features/windows/scratchpad.rs`](../src/features/windows/scratchpad.rs) — dropdown-style
 windows bound to a key. Spawn/hide/show a floating window on demand; actions
 `toggle_scratch`, `focus_or_toggle_scratch`,
 `focus_or_toggle_matching_scratch`. All scratchpad state is contained here so
 the rest of the compositor is oblivious when the feature is off.
 
 ### `overview` (Exposé / mission control)
-[`src/features/overview.rs`](../src/features/overview.rs) — shrinks every window
+[`src/features/windows/overview/`](../src/features/windows/overview/) — shrinks every window
 into a live, animated grid of thumbnails; jump to one by typing a letter hint or
 clicking. Two modes: current-tag (`toggle_overview`) and all-tags
 (`toggle_overview_all`, which switches tag on selection). Rendering reuses
@@ -87,22 +87,22 @@ Smithay's `constrain_space_element` to scale live render elements into each grid
 cell; the zoom animation interpolates between real geometry and grid cell.
 
 ### `pip` (picture-in-picture)
-[`src/features/pip.rs`](../src/features/pip.rs) — mirrors the focused window into
+[`src/features/windows/pip.rs`](../src/features/windows/pip.rs) — mirrors the focused window into
 a small always-on-top thumbnail pinned to a corner, kept live even when the
 source window is on a hidden tag (a frame callback is delivered every frame).
 Actions `toggle_pip`, `move_pip`.
 
 ### `auto-back-empty-tag`
-[`src/features/auto_back_empty_tag.rs`](../src/features/auto_back_empty_tag.rs) —
+[`src/features/windows/auto_back_empty_tag.rs`](../src/features/windows/auto_back_empty_tag.rs) —
 when the last window on a tag closes, automatically navigate back to the
 previously viewed tag.
 
 ### `startup-cmds`
-[`src/features/startup_cmds.rs`](../src/features/startup_cmds.rs) — commands in
+[`src/features/session/startup_cmds.rs`](../src/features/session/startup_cmds.rs) — commands in
 `startup_cmds` are spawned once, unconditionally, after the compositor is ready.
 
 ### `swallow` (terminal window swallowing)
-[`src/features/swallow.rs`](../src/features/swallow.rs) — dwm's swallow patch:
+[`src/features/windows/swallow.rs`](../src/features/windows/swallow.rs) — dwm's swallow patch:
 when a terminal spawns a graphical child (`mpv video.mp4`, `zathura doc.pdf`, …
 run from a shell), the terminal is hidden and the child takes its slot in the
 layout; closing the child restores the terminal. Matching is by **process
@@ -122,7 +122,7 @@ away. Linux-only (reads `/proc`), matching rwl's udev/DRM target.
 ## Input & focus features
 
 ### `warp`
-[`src/features/warp.rs`](../src/features/warp.rs) — warp the pointer to the newly
+[`src/features/integration/warp.rs`](../src/features/integration/warp.rs) — warp the pointer to the newly
 focused window after keyboard focus changes (and once at startup).
 
 ### `mod-tap`
@@ -135,22 +135,22 @@ binding; the gesture state lives in `Rwl::mod_tap`.
 ## Visual features
 
 ### `rounded-corners`
-[`src/features/rounded_corners.rs`](../src/features/rounded_corners.rs) —
+[`src/features/effects/rounded_corners.rs`](../src/features/effects/rounded_corners.rs) —
 shader-based rounded-corner render elements, re-exported through
 [`src/render.rs`](../src/render.rs). Radius set by `windows.corner_radius`.
 
 ### `gaps`
-[`src/features/gaps.rs`](../src/features/gaps.rs) — configurable gaps between
+[`src/features/effects/gaps.rs`](../src/features/effects/gaps.rs) — configurable gaps between
 tiled windows (`windows.gaps_px`), togglable at runtime (`toggle_gaps`). With
 `windows.smart_gaps` (default on, dwm's smartgaps) a lone tiled window fills the
 work area with no gaps; set it `false` to gap a single window too.
 
 ### `fade`
-[`src/features/fade.rs`](../src/features/fade.rs) — per-window fade-in/fade-out
+[`src/features/effects/fade.rs`](../src/features/effects/fade.rs) — per-window fade-in/fade-out
 animations (`effects.fade_in_ms` / `fade_out_ms`; `0` disables).
 
 ### `tag-transition`
-[`src/features/tag_transition.rs`](../src/features/tag_transition.rs) — smooth
+[`src/features/effects/tag_transition.rs`](../src/features/effects/tag_transition.rs) — smooth
 horizontal slide between tags: old-tag windows slide out in the direction of
 travel while new-tag windows slide in from the opposite side. Duration
 `effects.tag_transition_ms`. The compositor keeps windows mapped through the
@@ -158,7 +158,7 @@ animation and re-arranges afterwards so late-committing clients (e.g. video
 players) don't show a blank first frame.
 
 ### `wallpaper`
-[`src/features/wallpaper.rs`](../src/features/wallpaper.rs) — decodes PNG/JPEG
+[`src/features/shell/wallpaper.rs`](../src/features/shell/wallpaper.rs) — decodes PNG/JPEG
 images (via the `image` crate) and composites them behind windows. Supports a
 `default` image and per-tag wallpapers (`wallpaper.tags`), with fit modes
 `fill` / `fit` / `stretch` / `center`. Decoding runs on a background thread and
@@ -172,39 +172,43 @@ warms every configured image at startup. Set at runtime with `rwl msg wallpaper`
 ## System features
 
 ### `bar` (embedded status bar)
-[`src/features/bar/`](../src/features/bar/) — a status bar that runs as a
+[`src/features/shell/bar/`](../src/features/shell/bar/) — a status bar that runs as a
 background thread inside the compositor and connects back to the compositor's own
 Wayland socket as a *client*, using the `wlr-layer-shell` and `zdwl-ipc`
 protocols. It therefore receives tag/layout/title state without an external
 pipe. Text is rendered by the in-tree
-[`azoth-render`](../src/features/bar/azoth-render/) crate — a safe wrapper over
+[`azoth-render`](../src/features/shell/bar/azoth-render/) crate — a safe wrapper over
 the C libraries **fcft** (fonts) and **pixman** (software compositing); it is the
 one place FFI (`unsafe`) lives, since the top-level crate denies `unsafe_code`.
 Configured via the `bar` table; controlled at runtime with the `-`-prefixed
 `rwl msg` commands (see [IPC.md](IPC.md#bar-commands-bar-feature)).
 
 ### `ipc` (command socket)
-[`src/features/ipc/`](../src/features/ipc/) — binds `$XDG_RUNTIME_DIR/rwl.sock`,
+[`src/features/integration/ipc/`](../src/features/integration/ipc/) — binds `$XDG_RUNTIME_DIR/rwl.sock`,
 dispatches text commands to the compositor, and supports status subscribers. The
 `rwl msg` client lives in the same module. It also exposes a **structured JSON
-surface** ([`event.rs`](../src/features/ipc/event.rs)): `rwl msg clients` dumps
+surface** ([`event.rs`](../src/features/integration/ipc/event.rs)): `rwl msg clients` dumps
 the window tree and `rwl msg watch` streams `window`/`focus`/`tag`/`title` events
 — enough to build external window switchers or activity loggers without any
 in-process UI. Full reference in [IPC.md](IPC.md).
 
 ### `hooks` (Lua event bus)
-[`src/features/hooks.rs`](../src/features/hooks.rs) — keeps the config Lua VM
+[`src/features/integration/hooks.rs`](../src/features/integration/hooks.rs) — keeps the config Lua VM
 alive so user callbacks fire on compositor events, turning the static config into
-a programmable one. Events: `on_window_open`, `on_window_close`, `on_tag_switch`,
-`on_focus`, `on_title_change`, `on_fullscreen`, `on_layout_change`,
-`on_monitor_add`, `on_monitor_remove`, `on_startup`. Callbacks read live state
+a programmable one. Events range from window lifecycle (`on_window_open`,
+`on_window_close`, `on_window_rule`) through focus/tag/layout changes
+(`on_focus`, `on_tag_switch`, `on_layout_change`, …) to monitor hotplug, urgency,
+session lock/unlock, and config errors — see
+[CONFIGURATION.md](CONFIGURATION.md#lua-hooks) for the complete list. Callbacks
+read live state
 through snapshot helpers (`rwl.clients()`, `rwl.focused()`, `rwl.count()`, …) and
 mutate it through a deferred command queue (`win:set_tags`, `rwl.zoom`, …) to
-avoid re-entering the compositor borrow. Full API in
+avoid re-entering the compositor borrow. A `lua` layout kind additionally routes
+tiling to an `on_arrange` callback. Full API in
 [CONFIGURATION.md](CONFIGURATION.md#lua-hooks).
 
 ### `lock` (native screen locker)
-[`src/features/lock.rs`](../src/features/lock.rs) — a built-in PAM locker (as
+[`src/features/session/lock.rs`](../src/features/session/lock.rs) — a built-in PAM locker (as
 opposed to the `ext-session-lock-v1` path that lets an external client like
 swaylock draw the lock screen). Security model:
 
@@ -220,7 +224,7 @@ swaylock draw the lock screen). Security model:
   the result returns via a calloop channel so the event loop never stalls.
 
 ### `winit` (nested backend)
-[`src/features/winit.rs`](../src/features/winit.rs) — runs rwl as an EGL-backed
+[`src/features/integration/winit.rs`](../src/features/integration/winit.rs) — runs rwl as an EGL-backed
 window inside an existing Wayland/X11 compositor, selected automatically when
 `WAYLAND_DISPLAY`/`DISPLAY` is set. The development counterpart to the udev/DRM
 backend. Without this feature, rwl refuses to start in a nested environment.

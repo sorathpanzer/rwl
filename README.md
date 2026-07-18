@@ -8,7 +8,7 @@ configuration layer, an embedded status bar, a command IPC socket, and a set of
 optional, feature-gated extras (overview, picture-in-picture, native screen
 locker, animations, and more).
 
-- **Language / edition:** Rust 2024 (MSRV 1.95)
+- **Language / edition:** Rust 2024 (see `rust-version` in [`Cargo.toml`](Cargo.toml) for the MSRV)
 - **Compositor toolkit:** Smithay (`desktop`, `wayland_frontend`, libinput,
   udev, DRM, EGL, GBM, libseat, GLES renderer)
 - **Config language:** Lua 5.4 (via `mlua`, vendored)
@@ -21,6 +21,7 @@ locker, animations, and more).
 - [Feature overview](#feature-overview)
 - [Building & installing](#building--installing)
 - [Running](#running)
+- [Troubleshooting](#troubleshooting)
 - [Configuration](#configuration)
 - [Command IPC (`rwl msg`)](#command-ipc-rwl-msg)
 - [Documentation map](#documentation-map)
@@ -39,7 +40,7 @@ feature so a minimal build is possible.
 
 **Window management:** tags (default 6), per-monitor master/stack with
 adjustable `nmaster` and `mfact`, floating windows, fullscreen, multi-monitor
-focus/move, per-tag layouts (`pertag-layouts`), scratchpads.
+focus/move, per-tag layouts (`pertag-layouts`), scratchpads (`scratchpad`).
 
 **Extras:** embedded status bar (`bar`), command socket (`ipc`), workspace
 overview / Exposé (`overview`), picture-in-picture (`pip`), native PAM screen
@@ -112,6 +113,16 @@ default level when `RUST_LOG` is unset.
 `XDG_RUNTIME_DIR` must be set — it is where the Wayland socket and the `rwl.sock`
 command socket are created.
 
+## Troubleshooting
+
+| Symptom | Cause / fix |
+|---------|-------------|
+| `XDG_RUNTIME_DIR is not set — cannot create Wayland socket` | Start rwl from a session that sets `XDG_RUNTIME_DIR` (a normal systemd user session does). It is where the Wayland and `rwl.sock` sockets live. |
+| `a Wayland compositor is already running, support for nested (winit) mode is disabled in this build` | You launched rwl inside another compositor without the `winit` feature. Rebuild with `winit` (it's in the default set) to run nested for development. |
+| dlopen errors for EGL / GBM / `libwayland` at startup (non-Nix build) | The runtime libraries must resolve at load time. The Nix package wraps the binary with `LD_LIBRARY_PATH`; a bare `cargo` build needs those libs on your loader path (run from `nix develop`, or set `LD_LIBRARY_PATH` yourself). |
+| Config changes seem ignored; unknown-key warnings | A parse error falls back to the compiled-in defaults (logged and printed to stderr); unknown keys are logged as `Unknown config keys: …` and skipped. Run with `-d` (or `RUST_LOG=debug`) to see the details, and check `on_config_error` / the bar for the surfaced message. |
+| Black screen / no output, hard to diagnose | Run with `-d` for debug logging and inspect the journal/stderr. On a bare TTY, confirm libseat can open the session and the GPU is reachable. |
+
 ## Configuration
 
 rwl reads `~/.config/rwl/config.lua` at startup (and on `reload_config`). Every
@@ -119,6 +130,11 @@ setting falls back to a compiled-in default when the file, table, or key is
 missing, so an empty or absent config yields a fully working compositor. Unknown
 keys are reported (logged and surfaced through the config-error channel) but do
 not stop loading.
+
+A complete, heavily commented starting config lives in
+[`examples/config/`](examples/config/) — copy `config.lua` (plus the optional
+`keys.lua` / `bar.lua` split it `dofile`s) into `~/.config/rwl/` and edit from
+there.
 
 Minimal example:
 
@@ -171,6 +187,8 @@ reference is in [`docs/IPC.md`](docs/IPC.md).
 | [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) | Full `config.lua` schema, default keybindings, Lua hooks API |
 | [`docs/IPC.md`](docs/IPC.md) | `rwl msg` WM and bar command reference, status format |
 | [`docs/FEATURES.md`](docs/FEATURES.md) | Per-feature reference and Cargo feature matrix |
+| [`examples/config/`](examples/config/) | Ready-to-copy commented `config.lua` (+ `keys.lua` / `bar.lua`) |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | Dev setup, lint posture, pre-PR checks |
 
 Every module also carries `//!` doc comments; run `cargo doc --open` for the
 API-level view.
@@ -181,6 +199,7 @@ API-level view.
 Cargo.toml            Crate manifest, feature flags, lints, build profiles
 flake.nix / flake.lock  Nix package + dev shell
 clippy.toml           Clippy doc-ident allowances
+examples/config/      Ready-to-copy commented config.lua (+ keys.lua, bar.lua)
 protocols/            Wayland protocol XML (dwl-ipc, wlr-layer-shell,
                       wlr-output-power-management) used by the bar client
 src/
