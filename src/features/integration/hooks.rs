@@ -829,6 +829,20 @@ pub fn install(lua: Lua) {
 // Event firing
 // ---------------------------------------------------------------------------
 
+/// Whether the config VM currently defines a global function named `name`.
+///
+/// A single, cheap table lookup — used to skip the O(n) [`refresh`] snapshot
+/// entirely when the user hasn't defined the hook being fired, so events like
+/// focus/title/tag changes cost nothing beyond this check for configs that don't
+/// subscribe to them.
+fn has_hook(name: &str) -> bool {
+    LUA.with(|cell| {
+        cell.borrow()
+            .as_ref()
+            .is_some_and(|lua| lua.globals().get::<mlua::Function>(name).is_ok())
+    })
+}
+
 /// Call the global Lua function `name` with a single window argument, if defined.
 fn fire_window(name: &str, window: &Window) {
     let window = window.clone();
@@ -852,6 +866,9 @@ fn fire_window(name: &str, window: &Window) {
 /// The just-opened window is already in `state.windows`, so it is included in
 /// the `rwl.count` snapshot.
 pub fn window_open(state: &Rwl, window: &Window) {
+    if !has_hook("on_window_open") {
+        return;
+    }
     refresh(state);
     fire_window("on_window_open", window);
 }
@@ -860,6 +877,9 @@ pub fn window_open(state: &Rwl, window: &Window) {
 /// `state.windows`, so `rwl.count` reflects the post-close tally (useful for
 /// reverting a dynamic layout when a tag drops below a threshold).
 pub fn window_close(state: &Rwl, window: &Window) {
+    if !has_hook("on_window_close") {
+        return;
+    }
     refresh(state);
     fire_window("on_window_close", window);
 }
@@ -867,6 +887,9 @@ pub fn window_close(state: &Rwl, window: &Window) {
 /// Fire `on_focus(win)`, de-duplicated so it only runs when the focused client
 /// actually changes.
 pub fn focus(state: &Rwl, window: &Window) {
+    if !has_hook("on_focus") {
+        return;
+    }
     refresh(state);
     let surface = window.wl_surface().map(std::borrow::Cow::into_owned);
     let changed = LAST_FOCUS.with(|last| {
@@ -908,8 +931,11 @@ pub fn startup(state: &Rwl, current_tags: u32) {
         return;
     }
     STARTUP_DONE.with(|d| d.set(true));
-    refresh(state);
-    fire_nullary("on_startup");
+    if has_hook("on_startup") {
+        refresh(state);
+        fire_nullary("on_startup");
+    }
+    // tag_switch / config_error below do their own has_hook-gated refresh.
     tag_switch(state, 0, current_tags);
     // Surface any error from the initial config load (reload errors are fired
     // from the ReloadConfig action).
@@ -920,6 +946,9 @@ pub fn startup(state: &Rwl, current_tags: u32) {
 
 /// Fire `on_tag_switch(old_mask, new_mask)`.
 pub fn tag_switch(state: &Rwl, old: u32, new: u32) {
+    if !has_hook("on_tag_switch") {
+        return;
+    }
     refresh(state);
     LUA.with(|cell| {
         let guard = cell.borrow();
@@ -933,6 +962,9 @@ pub fn tag_switch(state: &Rwl, old: u32, new: u32) {
 
 /// Fire `on_title_change(win, new_title)`.
 pub fn title_change(state: &Rwl, window: &Window, title: &str) {
+    if !has_hook("on_title_change") {
+        return;
+    }
     refresh(state);
     let window = window.clone();
     let title = title.to_owned();
@@ -965,6 +997,9 @@ fn layout_name(idx: usize) -> String {
 /// whenever the active layout index changes (including a per-tag layout that
 /// changes as a side effect of switching tags).
 pub fn layout_change(state: &Rwl, old_idx: usize, new_idx: usize) {
+    if !has_hook("on_layout_change") {
+        return;
+    }
     refresh(state);
     let (old, new) = (layout_name(old_idx), layout_name(new_idx));
     LUA.with(|cell| {
@@ -981,6 +1016,9 @@ pub fn layout_change(state: &Rwl, old_idx: usize, new_idx: usize) {
 /// toggled by the user or the client. Not fired for `win:set_fullscreen` calls
 /// made from Lua itself (which would risk a feedback loop).
 pub fn fullscreen(state: &Rwl, window: &Window, is_fullscreen: bool) {
+    if !has_hook("on_fullscreen") {
+        return;
+    }
     refresh(state);
     let window = window.clone();
     LUA.with(|cell| {
@@ -1014,6 +1052,9 @@ fn fire_named(hook: &str, name: &str) {
 /// Fire `on_monitor_add(name)` after an output has been added (including the
 /// first one at startup) — `name` is the connector/output name.
 pub fn monitor_add(state: &Rwl, name: &str) {
+    if !has_hook("on_monitor_add") {
+        return;
+    }
     refresh(state);
     fire_named("on_monitor_add", name);
 }
@@ -1021,6 +1062,9 @@ pub fn monitor_add(state: &Rwl, name: &str) {
 /// Fire `on_monitor_remove(name)` after an output has been unplugged/removed and
 /// its windows migrated to a surviving monitor.
 pub fn monitor_remove(state: &Rwl, name: &str) {
+    if !has_hook("on_monitor_remove") {
+        return;
+    }
     refresh(state);
     fire_named("on_monitor_remove", name);
 }
@@ -1031,6 +1075,9 @@ pub fn monitor_remove(state: &Rwl, name: &str) {
 /// Fired in addition to `on_monitor_add` / `on_monitor_remove`, and on a config
 /// reload that repositions outputs.
 pub fn monitor_layout(state: &Rwl) {
+    if !has_hook("on_monitor_layout") {
+        return;
+    }
     refresh(state);
     fire_nullary("on_monitor_layout");
 }
@@ -1038,6 +1085,9 @@ pub fn monitor_layout(state: &Rwl) {
 /// Fire `on_urgency(win)` when a window raises an urgency hint (xdg-activation or
 /// an X11 urgency request), so config can toast / bump / focus it.
 pub fn urgency(state: &Rwl, window: &Window) {
+    if !has_hook("on_urgency") {
+        return;
+    }
     refresh(state);
     fire_window("on_urgency", window);
 }
@@ -1045,12 +1095,18 @@ pub fn urgency(state: &Rwl, window: &Window) {
 /// Fire `on_lock()` when the session becomes locked (native locker or an
 /// `ext-session-lock` client).
 pub fn lock(state: &Rwl) {
+    if !has_hook("on_lock") {
+        return;
+    }
     refresh(state);
     fire_nullary("on_lock");
 }
 
 /// Fire `on_unlock()` when the session is unlocked.
 pub fn unlock(state: &Rwl) {
+    if !has_hook("on_unlock") {
+        return;
+    }
     refresh(state);
     fire_nullary("on_unlock");
 }
@@ -1059,6 +1115,9 @@ pub fn unlock(state: &Rwl) {
 /// or unknown keys, so the user can surface it (notify-send, a bar warning, …).
 /// `msg` is the human-readable error string from [`crate::config::config_error`].
 pub fn config_error(state: &Rwl, msg: &str) {
+    if !has_hook("on_config_error") {
+        return;
+    }
     refresh(state);
     fire_named("on_config_error", msg);
 }
@@ -1068,6 +1127,9 @@ pub fn config_error(state: &Rwl, msg: &str) {
 /// queries inside the function see live state; any action helpers the function
 /// calls are enqueued and applied when the caller drains the command queue.
 pub fn call(state: &Rwl, name: &str) {
+    if !has_hook(name) {
+        return;
+    }
     refresh(state);
     fire_nullary(name);
 }
@@ -1102,6 +1164,9 @@ pub struct RuleOverride {
 /// the static rules stand unchanged and a broken predicate never loses a window.
 #[must_use]
 pub fn window_rule(state: &Rwl, window: &Window) -> Option<RuleOverride> {
+    if !has_hook("on_window_rule") {
+        return None;
+    }
     refresh(state);
     let window = window.clone();
     LUA.with(|cell| {
