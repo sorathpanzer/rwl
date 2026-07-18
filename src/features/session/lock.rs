@@ -205,6 +205,8 @@ pub fn lock(state: &mut Rwl) {
         anim_timer: None,
     });
     state.locked = true;
+    #[cfg(feature = "hooks")]
+    crate::features::hooks::lock(state);
 
     // Abandon any in-progress pointer grab (e.g. locking mid-drag) so it cannot
     // resume against a client window after unlock. Input handlers ignore grabs
@@ -351,6 +353,8 @@ fn unlock(state: &mut Rwl) {
         // `lock` (and its Zeroizing password) is wiped as it drops here.
     }
     state.locked = false;
+    #[cfg(feature = "hooks")]
+    crate::features::hooks::unlock(state);
 
     if let Some(kb) = state.keyboard.clone() {
         let surface = state

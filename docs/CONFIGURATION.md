@@ -395,6 +395,11 @@ function on_fullscreen(win, fs) end   -- fs is a bool; user/client-initiated onl
 function on_layout_change(old, new) end -- old/new are layout symbol names
 function on_monitor_add(name) end     -- output plugged in (also the first one)
 function on_monitor_remove(name) end  -- output unplugged
+function on_monitor_layout() end      -- output geometry/count changed & settled
+function on_urgency(win) end          -- window raised an urgency hint
+function on_lock() end                -- session locked
+function on_unlock() end              -- session unlocked
+function on_config_error(msg) end     -- config load/reload reported an error
 function on_startup() end             -- fired once, after the first output
 ```
 
@@ -402,7 +407,16 @@ function on_startup() end             -- fired once, after the first output
 for `win:set_fullscreen()` calls made from Lua (to avoid feedback loops).
 `on_layout_change` also fires when a per-tag layout changes as a side effect of
 switching tags. `on_monitor_add` fires after `on_startup` for the first output,
-and on every hotplug thereafter.
+and on every hotplug thereafter. `on_monitor_layout` fires (in addition to
+`on_monitor_add`/`on_monitor_remove`) whenever the set of outputs or their
+geometry/scale/position changes and re-settles — including a config reload that
+repositions outputs — so a spanning bar or wallpaper can recompute once.
+
+`on_urgency` fires when a window raises an urgency hint (xdg-activation), right
+before rwl focuses it. `on_lock` / `on_unlock` fire when the session locks and
+unlocks (native locker or an `ext-session-lock` client). `on_config_error(msg)`
+fires after a config load or reload that reported an error or unknown keys —
+handy for surfacing it, e.g. `on_config_error = function(m) rwl.spawn("notify-send", "rwl config", m) end`.
 
 `on_tag_switch` is also fired once at startup with `old == 0` and `new` set to
 the launch tag, so per-tag state (such as a wallpaper) is applied immediately
@@ -425,6 +439,18 @@ end
 
 function on_tag_switch(old, new)
     rwl.notify("tag " .. new)
+end
+```
+
+Example — desktop notifications for config errors and urgent windows:
+
+```lua
+function on_config_error(msg)
+    rwl.spawn("notify-send", "rwl config", msg)
+end
+
+function on_urgency(win)
+    rwl.spawn("notify-send", "urgent", win:app_id() or "?")
 end
 ```
 
@@ -463,8 +489,16 @@ right before the callback fires):
 - `rwl.sel_tags()` — the selected monitor's active tag bitmask.
 - `rwl.layout()` — the selected monitor's layout symbol name (or `nil`).
 - `rwl.monitors()` — number of connected monitors.
+- `rwl.workarea()` — the selected monitor's work area as `{ x, y, w, h }` (the
+  rect layouts tile into; excludes the bar).
+- `rwl.pointer()` — the global pointer location as `{ x, y }`, or `nil`.
 - `win:app_id()`, `win:title()`, `win:tags()`, `win:is_floating()`,
   `win:is_fullscreen()`, `win:monitor()` — per-window state.
+- `win:geometry()` — the window's on-screen rect as `{ x, y, w, h }`, or `nil`
+  if unmapped.
+- `win:pid()` — the owning client's PID, or `nil`.
+- `win:parent()` — the transient-parent window handle (e.g. of a dialog), or
+  `nil`.
 
 **Action helpers** do **not** mutate compositor state synchronously —
 they enqueue a command that is applied at a safe point (right after the callback
@@ -473,8 +507,8 @@ returns, and once per event-loop iteration). This avoids re-entering the
 
 - `rwl` table: `spawn`, `view`, `toggle_view(mask)`, `set_layout(name_or_index)`,
   `reset_layout()`, `zoom()`, `inc_nmaster(delta)`, `set_mfact(delta)`, `focus_monitor(dir)`,
-  `notify(text)`, `set_wallpaper(path[, mode])` / `preload(path)` (`wallpaper`
-  feature; a nil path clears it).
+  `notify(text)`, `reload()` (reload the config file), `set_wallpaper(path[, mode])` /
+  `preload(path)` (`wallpaper` feature; a nil path clears it).
 - `win` handle: `set_tags(mask)`, `toggle_tag(mask)`, `set_floating(bool)`,
   `set_fullscreen(bool)`, `focus()`, `close()`, `move_to_monitor(dir)`,
   `warp()` (`warp` feature), `set_scratch(key)` (`scratchpad` feature).

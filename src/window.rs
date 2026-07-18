@@ -65,6 +65,15 @@ pub struct WindowState {
     /// Last `app_id` seen; cached so `format_status()` avoids re-locking Wayland
     /// surface state on every IPC print.
     pub last_appid: Option<String>,
+    /// Global on-screen geometry cached by the hooks snapshot (see
+    /// `features::hooks::refresh`) so `win:geometry()` can answer without a live
+    /// `&Rwl`.  `None` until the first snapshot, or while the window is unmapped.
+    #[cfg(feature = "hooks")]
+    pub hook_geom: Option<Rectangle<i32, Logical>>,
+    /// Owning client PID, resolved once from the surface credentials and cached
+    /// for `win:pid()`.  `None` until resolved (or if the client has no pid).
+    #[cfg(feature = "hooks")]
+    pub pid: Option<i32>,
     /// Geometry most recently sent to the client in a configure (set by
     /// `arrange()`).  Borders are drawn at this geometry rather than the
     /// committed-buffer geometry so they track the intended layout immediately,
@@ -164,6 +173,10 @@ impl WindowState {
             cfact: 1.0,
             last_title: None,
             last_appid: None,
+            #[cfg(feature = "hooks")]
+            hook_geom: None,
+            #[cfg(feature = "hooks")]
+            pid: None,
             pending_geom: None,
             buffer_mapped: false,
             last_focused: false,

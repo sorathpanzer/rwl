@@ -94,8 +94,9 @@ impl Rwl {
         #[cfg(any(feature = "hooks", feature = "ipc"))]
         let tag_before = (self.sel_mon, self.sel_monitor().map(crate::monitor::Monitor::tags));
         // Likewise snapshot the active layout index so any layout-changing action
-        // (or a per-tag layout that changes with the tag) fires on_layout_change.
-        #[cfg(feature = "hooks")]
+        // (or a per-tag layout that changes with the tag) fires on_layout_change
+        // and the `layout` IPC event.
+        #[cfg(any(feature = "hooks", feature = "ipc"))]
         let layout_before = (self.sel_mon, self.sel_monitor().map(crate::monitor::Monitor::layout_idx));
 
         match action {
@@ -295,6 +296,10 @@ impl Rwl {
                 self.arrange_all();
                 #[cfg(feature = "bar")]
                 crate::features::bar::send_bar_command("all reload");
+                #[cfg(feature = "hooks")]
+                if let Some(e) = crate::config::config_error() {
+                    crate::features::hooks::config_error(self, &e);
+                }
             }
             // Move and Resize require the window under the cursor and are
             // handled directly in process_pointer_button where that window is
@@ -371,6 +376,20 @@ impl Rwl {
                 && old != new
             {
                 crate::features::hooks::layout_change(self, old, new);
+            }
+        }
+
+        // Emit a structured `layout` event if the selected monitor's active
+        // layout changed (and we did not switch monitors).
+        #[cfg(feature = "ipc")]
+        {
+            let (mon_before, old_lt) = layout_before;
+            if mon_before == self.sel_mon
+                && let (Some(old), Some(new)) =
+                    (old_lt, self.sel_monitor().map(crate::monitor::Monitor::layout_idx))
+                && old != new
+            {
+                crate::features::ipc::event::layout(self, mon_before, old, new);
             }
         }
     }
@@ -566,6 +585,8 @@ impl Rwl {
             self.arrange_all();
             #[cfg(feature = "hooks")]
             crate::features::hooks::fullscreen(self, &w, new_fs);
+            #[cfg(feature = "ipc")]
+            crate::features::ipc::event::fullscreen(self, &w);
         }
     }
 

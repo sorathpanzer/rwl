@@ -126,6 +126,14 @@ pass a comma/space-separated subset (e.g. `rwl msg watch window focus`).
 | `focus` | `{"event":"focus","window":{…}\|null}` |
 | `title` | `{"event":"title","window":{…}}` |
 | `tag` | `{"event":"tag","monitor":<i>,"selected":<mask>,"occupied":<mask>}` |
+| `layout` | `{"event":"layout","monitor":<i>,"old":"<name>","new":"<name>"}` |
+| `fullscreen` | `{"event":"fullscreen","window":{…}}` (the object's `fullscreen` field carries the new state) |
+| `monitor` | `{"event":"monitor","action":"add"\|"remove","name":"<connector>"}` |
+| `urgency` | `{"event":"urgency","window":{…}}` |
+
+These mirror the Lua hook events (`on_layout_change`, `on_fullscreen`,
+`on_monitor_add`/`on_monitor_remove`, `on_urgency`) so external bars and scripts
+get the same fidelity as an in-process Lua config.
 
 The `window` object is the same shape emitted by `clients`. Example — a live
 window menu with `fuzzel`:

@@ -83,7 +83,10 @@ impl Rwl {
             crate::features::hooks::startup(self, tags);
             // Fired after startup on the first output, and on every hotplug after.
             crate::features::hooks::monitor_add(self, output.name().as_str());
+            crate::features::hooks::monitor_layout(self);
         }
+        #[cfg(feature = "ipc")]
+        crate::features::ipc::event::monitor(self, "add", output.name().as_str());
     }
 
     /// Re-apply monitor rules (scale, transform, position) to all existing outputs.
@@ -121,6 +124,10 @@ impl Rwl {
         self.update_monitor_bounds();
         // Adaptive-sync policy may have changed with the reloaded rules.
         self.reapply_vrr();
+        // Output positions/scales may have changed — let config recompute
+        // anything that spans outputs.
+        #[cfg(feature = "hooks")]
+        crate::features::hooks::monitor_layout(self);
     }
 
     /// Remove an output (monitor disconnected).
@@ -190,7 +197,12 @@ impl Rwl {
             }
 
             #[cfg(feature = "hooks")]
-            crate::features::hooks::monitor_remove(self, output.name().as_str());
+            {
+                crate::features::hooks::monitor_remove(self, output.name().as_str());
+                crate::features::hooks::monitor_layout(self);
+            }
+            #[cfg(feature = "ipc")]
+            crate::features::ipc::event::monitor(self, "remove", output.name().as_str());
         }
         self.arrange_all();
     }

@@ -59,6 +59,10 @@ impl XdgActivationHandler for Rwl {
             // Mark urgent so borders/IPC reflect it, then immediately switch to
             // the window's monitor+tags and focus it (mirrors dwl.c urgent()).
             crate::window::set_urgent(&w, true);
+            #[cfg(feature = "hooks")]
+            crate::features::hooks::urgency(self, &w);
+            #[cfg(feature = "ipc")]
+            crate::features::ipc::event::urgency(self, &w);
             self.focus_urgent();
         }
     }

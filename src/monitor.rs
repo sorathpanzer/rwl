@@ -109,7 +109,7 @@ impl Monitor {
     /// shrinks the layouts list.
     /// Index (into the configured `layouts` list) of the active layout. Used to
     /// detect layout changes for the `on_layout_change` hook.
-    #[cfg(feature = "hooks")]
+    #[cfg(any(feature = "hooks", feature = "ipc"))]
     #[inline]
     #[must_use]
     pub const fn layout_idx(&self) -> usize {

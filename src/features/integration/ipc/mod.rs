@@ -10,7 +10,7 @@
 //! rwl msg status [<output>]
 //! rwl msg subscribe [<output>]
 //! rwl msg clients                          (JSON array of all windows)
-//! rwl msg watch [window,focus,tag,title]   (newline-delimited JSON events)
+//! rwl msg watch [window,focus,tag,title,layout,fullscreen,monitor,urgency]
 //! rwl msg view [<output>] <tagmask>
 //! rwl msg toggleview [<output>] <tagmask>
 //! rwl msg setlayout [<output>] <index>
@@ -141,7 +141,7 @@ fn usage() {
     eprintln!("       rwl msg status [<output>]");
     eprintln!("       rwl msg subscribe [<output>]");
     eprintln!("       rwl msg clients                         (JSON window list)");
-    eprintln!("       rwl msg watch [window,focus,tag,title]  (JSON event stream)");
+    eprintln!("       rwl msg watch [window,focus,tag,title,layout,fullscreen,monitor,urgency]");
     eprintln!("       rwl msg view [<output>] <tagmask>");
     eprintln!("       rwl msg toggleview [<output>] <tagmask>");
     eprintln!("       rwl msg setlayout [<output>] <index>");

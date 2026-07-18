@@ -31,6 +31,11 @@
 //! function on_layout_change(old, new) -- old/new are layout symbol names
 //! function on_monitor_add(name)     -- output plugged in (also the first one)
 //! function on_monitor_remove(name)  -- output unplugged
+//! function on_monitor_layout()      -- output geometry/count changed & settled
+//! function on_urgency(win)          -- window raised an urgency hint
+//! function on_lock()                -- session locked
+//! function on_unlock()              -- session unlocked
+//! function on_config_error(msg)     -- config load/reload reported an error
 //! function on_arrange(n, area)      -- user tiling for the "lua" layout kind;
 //!                                   -- returns n {x,y,w,h} rects (see lua_arrange)
 //! ```
@@ -42,7 +47,9 @@
 //! tagset), `rwl.focused()` (the focused window or nil), `rwl.sel_tags()`,
 //! `rwl.layout()` (layout symbol name), `rwl.monitors()` (monitor count). On a
 //! window handle: `win:app_id()`, `win:title()`, `win:tags()`,
-//! `win:is_floating()`, `win:is_fullscreen()`, `win:monitor()`.
+//! `win:is_floating()`, `win:is_fullscreen()`, `win:monitor()`,
+//! `win:geometry()`, `win:pid()`, `win:parent()`. On the `rwl` table:
+//! `rwl.workarea()`, `rwl.pointer()`.
 //!
 //! **Action helpers** mutate the compositor and therefore defer through the
 //! queue. On the `rwl` table: `rwl.spawn`, `rwl.view`, `rwl.toggle_view`,
@@ -50,7 +57,7 @@
 //! `rwl.set_mfact`, `rwl.focus_monitor`, `rwl.set_wallpaper`, `rwl.notify`. On a
 //! window handle: `win:set_tags`, `win:toggle_tag`, `win:set_floating`,
 //! `win:set_fullscreen`, `win:focus`, `win:close`, `win:move_to_monitor`,
-//! `win:warp`, `win:set_scratch`.
+//! `win:warp`, `win:set_scratch`. `rwl.reload` reloads the config file.
 //!
 //! Callbacks act on the compositor through a **command queue**: `rwl.*` helpers
 //! and `win:*` action methods do not mutate compositor state directly (that
@@ -93,6 +100,13 @@ struct Snapshot {
     layout: Option<String>,
     /// Number of connected monitors (`rwl.monitors`).
     monitors: usize,
+    /// Selected monitor's work-area rect as `(x, y, w, h)` (`rwl.workarea`).
+    workarea: (i32, i32, i32, i32),
+    /// Global pointer location, if a pointer exists (`rwl.pointer`).
+    pointer: Option<(f64, f64)>,
+    /// Every managed window, so `win:parent()` can resolve a parent surface to a
+    /// live window handle without a `&Rwl`.
+    all: Vec<Window>,
 }
 
 thread_local! {
@@ -117,6 +131,9 @@ thread_local! {
             sel_tags: 0,
             layout: None,
             monitors: 0,
+            workarea: (0, 0, 0, 0),
+            pointer: None,
+            all: Vec::new(),
         })
     };
     /// Set once [`startup`] has fired, so the startup hooks run a single time per
@@ -298,7 +315,19 @@ pub fn refresh(state: &Rwl) {
         let mut snap = snap.borrow_mut();
         snap.tags.clear();
         snap.clients.clear();
+        snap.all.clear();
         for w in &state.windows {
+            // Cache geometry (updates over time) and pid (resolved once) into the
+            // window's own state so `win:geometry()` / `win:pid()` can answer
+            // synchronously from any window handle, not just the selected monitor.
+            let geom = state.space.element_geometry(w);
+            with_state_mut(w, |s| {
+                s.hook_geom = geom;
+                if s.pid.is_none() {
+                    s.pid = window_pid(state, w);
+                }
+            });
+            snap.all.push(w.clone());
             if with_state(w, |s| s.mon_idx).unwrap_or(0) == sel {
                 let tags = window_tags(w);
                 snap.tags.push(tags);
@@ -314,7 +343,23 @@ pub fn refresh(state: &Rwl) {
             .get(sel)
             .map(|m| layout_kind_name(m.layout_kind()).to_owned());
         snap.monitors = state.monitors.len();
+        snap.workarea = state
+            .monitors
+            .get(sel)
+            .map_or((0, 0, 0, 0), |m| (m.w.loc.x, m.w.loc.y, m.w.size.w, m.w.size.h));
+        snap.pointer = state.pointer.as_ref().map(|p| {
+            let l = p.current_location();
+            (l.x, l.y)
+        });
     });
+}
+
+/// Owning-client PID for `window`, from its Wayland surface credentials. Mirrors
+/// the swallow feature's lookup; `None` for surfaces without a live client.
+fn window_pid(state: &Rwl, window: &Window) -> Option<i32> {
+    use smithay::reexports::wayland_server::Resource as _;
+    let client = window.wl_surface()?.client()?;
+    client.get_credentials(&state.display_handle).ok().map(|c| c.pid)
 }
 
 /// Resolve a layout symbol name (`"tile"`, `"col"`, …) to its index in the
@@ -451,6 +496,47 @@ impl UserData for LuaWindow {
         // 0-based monitor index this window lives on, or nil if untracked.
         methods.add_method("monitor", |_, this, ()| {
             Ok(with_state(&this.0, |s| i64::try_from(s.mon_idx).unwrap_or(0)))
+        });
+        // win:geometry() -> { x, y, w, h } in global logical coords, or nil if the
+        // window is unmapped. Reads the cache filled by `refresh` before the hook.
+        methods.add_method("geometry", |lua, this, ()| {
+            match with_state(&this.0, |s| s.hook_geom).flatten() {
+                Some(g) => {
+                    let t = lua.create_table()?;
+                    t.set("x", g.loc.x)?;
+                    t.set("y", g.loc.y)?;
+                    t.set("w", g.size.w)?;
+                    t.set("h", g.size.h)?;
+                    Ok(mlua::Value::Table(t))
+                }
+                None => Ok(mlua::Value::Nil),
+            }
+        });
+        // win:pid() -> the owning client's PID, or nil.
+        methods.add_method("pid", |_, this, ()| {
+            Ok(with_state(&this.0, |s| s.pid).flatten().map(i64::from))
+        });
+        // win:parent() -> the transient-parent window handle, or nil. Resolves the
+        // xdg-toplevel parent surface against the snapshot's window list.
+        methods.add_method("parent", |lua, this, ()| {
+            let Some(psurf) = this
+                .0
+                .toplevel()
+                .and_then(smithay::wayland::shell::xdg::ToplevelSurface::parent)
+            else {
+                return Ok(mlua::Value::Nil);
+            };
+            let found = SNAPSHOT.with(|s| {
+                s.borrow()
+                    .all
+                    .iter()
+                    .find(|w| w.wl_surface().is_some_and(|c| *c == psurf))
+                    .cloned()
+            });
+            match found {
+                Some(w) => Ok(mlua::Value::UserData(lua.create_userdata(Self(w))?)),
+                None => Ok(mlua::Value::Nil),
+            }
         });
 
         methods.add_method("set_tags", |_, this, mask: u32| {
@@ -652,6 +738,43 @@ pub fn setup(lua: &Lua) -> mlua::Result<()> {
             Ok(i64::try_from(SNAPSHOT.with(|s| s.borrow().monitors)).unwrap_or(i64::MAX))
         })?,
     )?;
+    // rwl.workarea(): the selected monitor's work area as { x, y, w, h } (the rect
+    // layouts tile into — excludes the bar).
+    rwl.set(
+        "workarea",
+        lua.create_function(|lua, ()| {
+            let wa = SNAPSHOT.with(|s| s.borrow().workarea);
+            let tbl = lua.create_table()?;
+            tbl.set("x", wa.0)?;
+            tbl.set("y", wa.1)?;
+            tbl.set("w", wa.2)?;
+            tbl.set("h", wa.3)?;
+            Ok(tbl)
+        })?,
+    )?;
+    // rwl.pointer(): the global pointer location as { x, y }, or nil if there is
+    // no pointer (e.g. headless).
+    rwl.set(
+        "pointer",
+        lua.create_function(|lua, ()| match SNAPSHOT.with(|s| s.borrow().pointer) {
+            Some((x, y)) => {
+                let t = lua.create_table()?;
+                t.set("x", x)?;
+                t.set("y", y)?;
+                Ok(mlua::Value::Table(t))
+            }
+            None => Ok(mlua::Value::Nil),
+        })?,
+    )?;
+    // rwl.reload(): reload ~/.config/rwl/config.lua at runtime, exactly like the
+    // reload_config keybind. Any resulting config error fires on_config_error.
+    rwl.set(
+        "reload",
+        lua.create_function(|_, ()| {
+            enqueue(HookCmd::Dispatch(Action::ReloadConfig));
+            Ok(())
+        })?,
+    )?;
 
     // rwl.preload("~/pic.png"): decode a wallpaper into the cache on a background
     // thread without displaying it. Call from on_startup for each per-tag
@@ -781,6 +904,11 @@ pub fn startup(state: &Rwl, current_tags: u32) {
     refresh(state);
     fire_nullary("on_startup");
     tag_switch(state, 0, current_tags);
+    // Surface any error from the initial config load (reload errors are fired
+    // from the ReloadConfig action).
+    if let Some(e) = crate::config::config_error() {
+        config_error(state, &e);
+    }
 }
 
 /// Fire `on_tag_switch(old_mask, new_mask)`.
@@ -888,4 +1016,42 @@ pub fn monitor_add(state: &Rwl, name: &str) {
 pub fn monitor_remove(state: &Rwl, name: &str) {
     refresh(state);
     fire_named("on_monitor_remove", name);
+}
+
+/// Fire `on_monitor_layout()` after the set of outputs or their geometry
+/// (resolution / scale / position) has changed and been re-arranged — a single
+/// "the monitor layout settled, recompute anything that spans outputs" signal.
+/// Fired in addition to `on_monitor_add` / `on_monitor_remove`, and on a config
+/// reload that repositions outputs.
+pub fn monitor_layout(state: &Rwl) {
+    refresh(state);
+    fire_nullary("on_monitor_layout");
+}
+
+/// Fire `on_urgency(win)` when a window raises an urgency hint (xdg-activation or
+/// an X11 urgency request), so config can toast / bump / focus it.
+pub fn urgency(state: &Rwl, window: &Window) {
+    refresh(state);
+    fire_window("on_urgency", window);
+}
+
+/// Fire `on_lock()` when the session becomes locked (native locker or an
+/// `ext-session-lock` client).
+pub fn lock(state: &Rwl) {
+    refresh(state);
+    fire_nullary("on_lock");
+}
+
+/// Fire `on_unlock()` when the session is unlocked.
+pub fn unlock(state: &Rwl) {
+    refresh(state);
+    fire_nullary("on_unlock");
+}
+
+/// Fire `on_config_error(msg)` after a config load/reload that produced an error
+/// or unknown keys, so the user can surface it (notify-send, a bar warning, …).
+/// `msg` is the human-readable error string from [`crate::config::config_error`].
+pub fn config_error(state: &Rwl, msg: &str) {
+    refresh(state);
+    fire_named("on_config_error", msg);
 }

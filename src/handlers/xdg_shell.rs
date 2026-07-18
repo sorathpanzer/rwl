@@ -299,15 +299,18 @@ impl XdgShellHandler for Rwl {
     ) {
         let wl = surface.wl_surface();
         if let Some(w) = self.window_map.get(wl).cloned() {
-            #[cfg(feature = "hooks")]
+            #[cfg(any(feature = "hooks", feature = "ipc"))]
             let was_fs = crate::window::window_is_fullscreen(&w);
             set_fullscreen(&w, true);
             // arrange_all() will send the configure with the correct size and
             // xdg_toplevel::State::Fullscreen set; no need to send it here.
             self.arrange_all();
-            #[cfg(feature = "hooks")]
+            #[cfg(any(feature = "hooks", feature = "ipc"))]
             if !was_fs {
+                #[cfg(feature = "hooks")]
                 crate::features::hooks::fullscreen(self, &w, true);
+                #[cfg(feature = "ipc")]
+                crate::features::ipc::event::fullscreen(self, &w);
             }
         }
     }
@@ -315,13 +318,16 @@ impl XdgShellHandler for Rwl {
     fn unfullscreen_request(&mut self, surface: ToplevelSurface) {
         let wl = surface.wl_surface();
         if let Some(w) = self.window_map.get(wl).cloned() {
-            #[cfg(feature = "hooks")]
+            #[cfg(any(feature = "hooks", feature = "ipc"))]
             let was_fs = crate::window::window_is_fullscreen(&w);
             set_fullscreen(&w, false);
             self.arrange_all();
-            #[cfg(feature = "hooks")]
+            #[cfg(any(feature = "hooks", feature = "ipc"))]
             if was_fs {
+                #[cfg(feature = "hooks")]
                 crate::features::hooks::fullscreen(self, &w, false);
+                #[cfg(feature = "ipc")]
+                crate::features::ipc::event::fullscreen(self, &w);
             }
         }
     }

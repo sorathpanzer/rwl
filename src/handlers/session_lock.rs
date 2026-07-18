@@ -33,6 +33,8 @@ impl SessionLockHandler for Rwl {
         self.locked = true;
         // Confirm immediately — lock surfaces will cover the screen contents.
         confirmation.lock();
+        #[cfg(feature = "hooks")]
+        crate::features::hooks::lock(self);
 
         // Force pointer to re-evaluate focus so it routes to the lock surface.
         if let Some(ptr) = self.pointer.clone() {
@@ -59,6 +61,8 @@ impl SessionLockHandler for Rwl {
 
         self.locked = false;
         self.lock_surfaces.clear();
+        #[cfg(feature = "hooks")]
+        crate::features::hooks::unlock(self);
 
         // Restore keyboard focus to the previously focused window (or clear it
         // if there is none).
