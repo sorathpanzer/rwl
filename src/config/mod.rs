@@ -72,6 +72,19 @@ pub struct Config {
     pub tag_transition:             bool,
     #[cfg(feature = "tag-transition")]
     pub tag_transition_ms:          u32,
+    /// Duration of the one-time whole-screen zoom-in played at compositor
+    /// startup, in milliseconds. `0` disables the effect.
+    #[cfg(feature = "startup-zoom")]
+    pub startup_zoom_ms:            u32,
+    /// How far from full size the startup zoom begins, e.g. `0.15` starts at
+    /// `0.85` (zoom in) or `1.15` (zoom out) and animates to `1.0`.
+    #[cfg(feature = "startup-zoom")]
+    pub startup_zoom_amount:        f64,
+    /// Whether the startup zoom grows into place (`In`) or shrinks into place
+    /// (`Out`). For a zoom-in the uncovered border shows the fullscreen
+    /// background colour until the content reaches full size.
+    #[cfg(feature = "startup-zoom")]
+    pub startup_zoom_direction:     crate::features::effects::startup_zoom::ZoomDirection,
     // Tags
     #[cfg(feature = "auto-back-empty-tag")]
     pub auto_back_empty_tag: bool,
@@ -166,6 +179,12 @@ impl Default for Config {
             tag_transition:    true,
             #[cfg(feature = "tag-transition")]
             tag_transition_ms: 250,
+            #[cfg(feature = "startup-zoom")]
+            startup_zoom_ms:        300,
+            #[cfg(feature = "startup-zoom")]
+            startup_zoom_amount:    0.15,
+            #[cfg(feature = "startup-zoom")]
+            startup_zoom_direction: crate::features::effects::startup_zoom::ZoomDirection::In,
             #[cfg(feature = "auto-back-empty-tag")]
             auto_back_empty_tag: true,
             tag_count:          6,

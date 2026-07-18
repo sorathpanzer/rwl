@@ -1028,6 +1028,10 @@ impl Rwl {
         // Advance the overview open/close zoom (may finalize a selection).
         #[cfg(feature = "overview")]
         let any_overview = crate::features::overview::advance(self);
+        // Advance the one-time whole-screen startup zoom; `Some(scale)` while it
+        // is still playing, applied as a centred rescale of every element below.
+        #[cfg(feature = "startup-zoom")]
+        let startup_zoom = crate::features::effects::startup_zoom::advance(self);
         // Unmap slide-out windows whose animation just finished.
         #[cfg(feature = "tag-transition")]
         self.finalize_slide_outs();
@@ -1370,39 +1374,76 @@ impl Rwl {
             }
 
             let fullscreen_bg = crate::config::get().fullscreen_bg;
-            let render_result = match surface.compositor.render_frame(
-                renderer,
-                &elements,
-                fullscreen_bg,
-                FrameFlags::DEFAULT,
-            ) {
-                Ok(r) => r,
-                Err(e) => {
-                    tracing::error!("render_frame error: {e}");
-                    return;
-                }
-            };
 
-            // Export the rendered primary-plane buffer as a DMA-BUF so we can
-            // re-bind it for screencopy readback outside this borrow scope.
-            let screencopy_dmabuf: Option<Dmabuf> = if has_pending_screencopy {
-                if let PrimaryPlaneElement::Swapchain(ref elem) = render_result.primary_element {
-                    match elem.buffer().export() {
-                        Ok(d) => Some(d),
+            // render_frame + screencopy readback, factored into a macro so it can
+            // run over either the plain `elements` or — during the startup zoom —
+            // the same elements wrapped in a centred `RescaleRenderElement`, which
+            // changes their concrete type and so cannot share a single binding.
+            macro_rules! composite {
+                ($elems:expr) => {{
+                    let render_result = match surface.compositor.render_frame(
+                        renderer,
+                        $elems,
+                        fullscreen_bg,
+                        FrameFlags::DEFAULT,
+                    ) {
+                        Ok(r) => r,
                         Err(e) => {
-                            tracing::warn!("screencopy: export primary dmabuf: {e:?}");
+                            tracing::error!("render_frame error: {e}");
+                            return;
+                        }
+                    };
+
+                    // Export the rendered primary-plane buffer as a DMA-BUF so we can
+                    // re-bind it for screencopy readback outside this borrow scope.
+                    let screencopy_dmabuf: Option<Dmabuf> = if has_pending_screencopy {
+                        if let PrimaryPlaneElement::Swapchain(ref elem) = render_result.primary_element {
+                            match elem.buffer().export() {
+                                Ok(d) => Some(d),
+                                Err(e) => {
+                                    tracing::warn!("screencopy: export primary dmabuf: {e:?}");
+                                    None
+                                }
+                            }
+                        } else {
+                            tracing::debug!("screencopy: primary plane is direct scanout, cannot readback");
                             None
                         }
-                    }
-                } else {
-                    tracing::debug!("screencopy: primary plane is direct scanout, cannot readback");
-                    None
-                }
-            } else {
-                None
-            };
+                    } else {
+                        None
+                    };
 
-            (render_result.is_empty, render_result.states, screencopy_dmabuf)
+                    (render_result.is_empty, render_result.states, screencopy_dmabuf)
+                }};
+            }
+
+            #[cfg(feature = "startup-zoom")]
+            let composited = if let Some(zoom) = startup_zoom {
+                // Scale every element uniformly around the output centre; a factor
+                // below 1.0 shrinks the whole frame toward the middle, leaving a
+                // fullscreen-bg border that closes as the zoom settles at 1.0.
+                let mode_size = output.current_mode().map(|m| m.size).unwrap_or_default();
+                let origin = smithay::utils::Point::<i32, smithay::utils::Physical>::from(
+                    (mode_size.w / 2, mode_size.h / 2),
+                );
+                let zoomed: Vec<_> = elements
+                    .into_iter()
+                    .map(|e| {
+                        smithay::backend::renderer::element::utils::RescaleRenderElement::from_element(
+                            e,
+                            origin,
+                            zoom,
+                        )
+                    })
+                    .collect();
+                composite!(&zoomed)
+            } else {
+                composite!(&elements)
+            };
+            #[cfg(not(feature = "startup-zoom"))]
+            let composited = composite!(&elements);
+
+            composited
         };
 
         // 3b. Serve pending screencopy frames by re-binding the just-rendered
@@ -1592,6 +1633,11 @@ impl Rwl {
         }
         #[cfg(feature = "overview")]
         if any_overview {
+            self.schedule_render();
+        }
+        // Keep frames flowing while the one-time startup zoom is still animating.
+        #[cfg(feature = "startup-zoom")]
+        if startup_zoom.is_some() {
             self.schedule_render();
         }
     }

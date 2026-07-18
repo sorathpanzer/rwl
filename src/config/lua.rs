@@ -106,6 +106,7 @@ const WALLPAPER_KEYS: &[&str] = &[
 
 const EFFECTS_KEYS: &[&str] = &[
     "fade_in_ms", "fade_out_ms", "tag_transition", "tag_transition_ms",
+    "startup_zoom_ms", "startup_zoom_amount", "startup_zoom_direction",
 ];
 
 const KEYBOARD_KEYS: &[&str] = &[
@@ -220,6 +221,12 @@ impl Config {
             tag_transition:    ef.map_or(defaults.tag_transition,    |t| lua_bool(t, "tag_transition",    defaults.tag_transition)),
             #[cfg(feature = "tag-transition")]
             tag_transition_ms: ef.map_or(defaults.tag_transition_ms, |t| lua_u32( t, "tag_transition_ms", defaults.tag_transition_ms)),
+            #[cfg(feature = "startup-zoom")]
+            startup_zoom_ms:     ef.map_or(defaults.startup_zoom_ms,     |t| lua_u32(t, "startup_zoom_ms",     defaults.startup_zoom_ms)),
+            #[cfg(feature = "startup-zoom")]
+            startup_zoom_amount: ef.map_or(defaults.startup_zoom_amount, |t| lua_f64(t, "startup_zoom_amount", defaults.startup_zoom_amount)),
+            #[cfg(feature = "startup-zoom")]
+            startup_zoom_direction: ef.map_or(defaults.startup_zoom_direction, |t| lua_zoom_direction(t, defaults.startup_zoom_direction)),
             tag_count,
             #[cfg(feature = "pertag-layouts")]
             pertag_layouts,
@@ -384,6 +391,16 @@ fn lua_wallpaper_mode(
 ) -> crate::features::wallpaper::WallpaperMode {
     lua_str(t, "mode")
         .and_then(|s| crate::features::wallpaper::WallpaperMode::parse(&s))
+        .unwrap_or(default)
+}
+
+#[cfg(feature = "startup-zoom")]
+fn lua_zoom_direction(
+    t: &mlua::Table,
+    default: crate::features::effects::startup_zoom::ZoomDirection,
+) -> crate::features::effects::startup_zoom::ZoomDirection {
+    lua_str(t, "startup_zoom_direction")
+        .and_then(|s| crate::features::effects::startup_zoom::ZoomDirection::parse(&s))
         .unwrap_or(default)
 }
 

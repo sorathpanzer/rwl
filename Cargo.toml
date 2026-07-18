@@ -8,7 +8,7 @@ license = "GPL-3.0-or-later"
 repository = "https://github.com/sorathpanzer/rwl"
 
 [features]
-default = ["tile", "monocle", "scratchpad", "col", "scroll", "dwindle", "bstack", "centeredmaster", "bar", "ipc", "winit", "rounded-corners", "gaps", "warp", "fade", "tag-transition", "pertag-layouts", "startup-cmds", "auto-back-empty-tag", "overview", "hooks", "pip", "mod-tap", "lock", "wallpaper", "swallow", "xwayland"]
+default = ["tile", "monocle", "scratchpad", "col", "scroll", "dwindle", "bstack", "centeredmaster", "bar", "ipc", "winit", "rounded-corners", "gaps", "warp", "fade", "tag-transition", "startup-zoom", "pertag-layouts", "startup-cmds", "auto-back-empty-tag", "overview", "hooks", "pip", "mod-tap", "lock", "wallpaper", "swallow", "xwayland"]
 tile = []
 lock = ["dep:pam", "dep:zeroize"]
 monocle = []
@@ -25,6 +25,7 @@ bstack = []
 centeredmaster = []
 fade = []
 tag-transition = []
+startup-zoom = []
 winit = ["smithay/backend_winit"]
 rounded-corners = []
 gaps = []

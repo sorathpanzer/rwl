@@ -355,6 +355,13 @@ pub struct Rwl {
     /// transition has finished.
     #[cfg(feature = "tag-transition")]
     pub post_transition_wakeup: u32,
+    /// When the startup zoom clock started (set on the first rendered frame).
+    /// `None` before the first frame and after the animation finishes.
+    #[cfg(feature = "startup-zoom")]
+    pub startup_zoom_start: Option<std::time::Instant>,
+    /// Set once the one-time startup zoom has completed so it never replays.
+    #[cfg(feature = "startup-zoom")]
+    pub startup_zoom_done: bool,
 
     // ---- XWayland ----
     /// `xwayland_shell_v1` global — lets `XWayland` associate its X11 windows with
@@ -614,6 +621,10 @@ impl Rwl {
             tag_transition_was_active: false,
             #[cfg(feature = "tag-transition")]
             post_transition_wakeup: 0,
+            #[cfg(feature = "startup-zoom")]
+            startup_zoom_start: None,
+            #[cfg(feature = "startup-zoom")]
+            startup_zoom_done: false,
             #[cfg(feature = "xwayland")]
             xwayland_shell_state,
             #[cfg(feature = "xwayland")]

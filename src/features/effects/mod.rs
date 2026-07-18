@@ -7,5 +7,7 @@ pub mod fade;
 pub mod rounded_corners;
 #[cfg(feature = "tag-transition")]
 pub mod tag_transition;
+#[cfg(feature = "startup-zoom")]
+pub mod startup_zoom;
 #[cfg(feature = "gaps")]
 pub mod gaps;
