@@ -1063,6 +1063,15 @@ pub fn config_error(state: &Rwl, msg: &str) {
     fire_named("on_config_error", msg);
 }
 
+/// Invoke a user-defined global Lua function `name` with no arguments — the
+/// `call` keybind action. Refreshes the read-helper snapshot first so `rwl.*`
+/// queries inside the function see live state; any action helpers the function
+/// calls are enqueued and applied when the caller drains the command queue.
+pub fn call(state: &Rwl, name: &str) {
+    refresh(state);
+    fire_nullary(name);
+}
+
 /// Rule fields an `on_window_rule` callback may override, layered on top of the
 /// declarative `rules` table. Every field is optional — a `None` leaves the
 /// value computed from the static rules untouched.

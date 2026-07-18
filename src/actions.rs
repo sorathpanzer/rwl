@@ -278,6 +278,17 @@ impl Rwl {
                 self.focus_or_toggle_matching_scratch(cmd);
             }
             Action::Chvt(vt) => self.chvt(*vt),
+            // Run a user Lua function, then apply the actions it enqueued. The
+            // helpers it calls (rwl.view / rwl.set_layout / win:set_tags / …) go
+            // through nested dispatch, which fires their own tag/layout hooks — so
+            // return early to skip this dispatch's post-action hook comparison and
+            // avoid double-firing on_tag_switch / on_layout_change.
+            #[cfg(feature = "hooks")]
+            Action::CallLua(name) => {
+                crate::features::hooks::call(self, name);
+                crate::features::hooks::drain(self);
+                return;
+            }
             Action::ReloadConfig => {
                 crate::config::reload();
                 // Clear cursor cache so the new theme/size takes effect on the

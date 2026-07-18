@@ -255,6 +255,14 @@ fn parse_action(tbl: &mlua::Table, action: &str) -> Option<Action> {
         #[cfg(feature = "scratchpad")]
         "focus_or_toggle_matching_scratch" => parse_scratch_cmd(tbl).map(Action::FocusOrToggleMatchingScratch),
         "chvt"                           => Some(Action::Chvt(lua_u32(tbl, "vt", 1))),
+        #[cfg(feature = "hooks")]
+        "call"                           => {
+            let f = lua_str(tbl, "fn");
+            if f.is_none() {
+                tracing::warn!("keybind action 'call' is missing its 'fn' field");
+            }
+            f.map(Action::CallLua)
+        }
         "reload_config"                  => Some(Action::ReloadConfig),
         "quit"                           => Some(Action::Quit),
         #[cfg(feature = "bar")]

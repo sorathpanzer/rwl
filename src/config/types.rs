@@ -200,6 +200,11 @@ pub enum Action {
     Chvt(u32),
     ReloadConfig,
     Quit,
+    /// Call a user-defined global Lua function by name (the `call` keybind
+    /// action) — turns any hook helper (`rwl.spawn`, `win:set_tags`, …) into a
+    /// key-triggerable "window choreography" macro.
+    #[cfg(feature = "hooks")]
+    CallLua(String),
     #[cfg(feature = "bar")]
     ToggleBar,
     #[cfg(feature = "bar")]

@@ -303,6 +303,7 @@ Every action name accepted in a binding (from `parse_action` in
 | `focus_or_toggle_scratch` | `scratch_key`, `cmd` | Focus the scratchpad, or toggle if already focused. (`scratchpad`) |
 | `focus_or_toggle_matching_scratch` | `scratch_key`, `cmd` | Same, matched by app-id. (`scratchpad`) |
 | `chvt` | `vt` | Switch virtual terminal. |
+| `call` | `fn` | Call the named global Lua function (a key-triggered macro). (`hooks`) |
 | `reload_config` | | Re-read `config.lua`. |
 | `quit` | | Exit the compositor. |
 | `toggle_bar` | | Show/hide the bar. (`bar`) |
@@ -312,6 +313,46 @@ Every action name accepted in a binding (from `parse_action` in
 | `toggle_pip` | | Toggle picture-in-picture on the focused window. (`pip`) |
 | `move_pip` | | Move the PiP thumbnail to the next corner. (`pip`) |
 | `lock` | | Engage the native screen locker. (`lock`) |
+
+#### Key-triggered Lua macros (`call`)
+
+The `call` action runs a named global Lua function, so any [hook helper](#lua-hooks)
+(`rwl.spawn`, `rwl.set_layout`, `rwl.set_mfact`, `win:set_tags`, …) becomes a
+key-bindable "window choreography" macro. Bind the key:
+
+```lua
+keys = {
+  { mods = "MS", key = "d", action = "call", fn = "workspace_dev" },
+}
+```
+
+…and define the function in the same config. Because placement reacts to each
+window as it opens (via `on_window_open`), the macro is deterministic without any
+`sleep` — the tag is applied whenever the app's window actually appears:
+
+```lua
+local pending = {}   -- app_id -> tag, consumed once per window
+
+function workspace_dev()
+    rwl.spawn("kitty");   pending["kitty"]   = rwl.tag(2)
+    rwl.spawn("firefox"); pending["firefox"] = rwl.tag(3)
+    rwl.set_layout("col")
+    rwl.inc_nmaster(1)
+end
+
+function on_window_open(win)
+    local t = pending[win:app_id() or ""]
+    if t then
+        win:set_tags(t)
+        pending[win:app_id()] = nil   -- future windows of this app unaffected
+    end
+end
+```
+
+The called function runs synchronously; the compositor actions it enqueues
+(`rwl.*` / `win:*`) are applied right after it returns. A missing `fn` field or a
+runtime error inside the function is logged; binding to a function that isn't
+defined simply does nothing.
 
 ### Default keybindings
 
