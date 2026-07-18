@@ -93,6 +93,7 @@ impl Rwl {
                     if state.overview.is_some() {
                         use smithay::input::keyboard::keysyms as xkb;
                         let keysym = handle.modified_sym().raw();
+                        let base_keysym = handle.raw_syms().first().map_or(keysym, |k| k.raw());
                         // Arrow keys always drive overview navigation, even with a
                         // modifier held — so Mod+arrows move the selection just like
                         // bare arrows (rather than matching a focus_stack keybind and
@@ -101,9 +102,7 @@ impl Rwl {
                             return FilterResult::Intercept(Action::OverviewNav(keysym));
                         }
                         let mod_bits = mods_to_bits(mods);
-                        return cfg.keys.iter()
-                            .find(|bind| bind.keysym == keysym
-                                && clean_mask(mod_bits) == clean_mask(bind.mods))
+                        return match_keybind(&cfg.keys, keysym, base_keysym, mod_bits, |_| true)
                             .map_or_else(
                                 || FilterResult::Intercept(Action::OverviewNav(keysym)),
                                 |bind| FilterResult::Intercept(bind.action.clone()),
@@ -111,6 +110,7 @@ impl Rwl {
                     }
 
                     let keysym = handle.modified_sym().raw();
+                    let base_keysym = handle.raw_syms().first().map_or(keysym, |k| k.raw());
                     let mod_bits = mods_to_bits(mods);
 
                     // A bare Escape (no modifiers) closes PiP when it is active,
@@ -125,16 +125,12 @@ impl Rwl {
 
                     // In passthrough mode only allow the passthrough toggle binding
                     if state.passthrough {
-                        return cfg.keys.iter()
-                            .find(|bind| bind.keysym == keysym
-                                && clean_mask(mod_bits) == clean_mask(bind.mods)
-                                && matches!(bind.action, Action::TogglePassthrough))
+                        return match_keybind(&cfg.keys, keysym, base_keysym, mod_bits,
+                            |bind| matches!(bind.action, Action::TogglePassthrough))
                             .map_or(FilterResult::Forward, |bind| FilterResult::Intercept(bind.action.clone()));
                     }
 
-                    cfg.keys.iter()
-                        .find(|bind| bind.keysym == keysym
-                            && clean_mask(mod_bits) == clean_mask(bind.mods))
+                    match_keybind(&cfg.keys, keysym, base_keysym, mod_bits, |_| true)
                         .map_or(FilterResult::Forward, |bind| FilterResult::Intercept(bind.action.clone()))
                 },
             )
@@ -686,4 +682,28 @@ pub const fn clean_mask(mask: u32) -> u32 {
     // CapsLock bit is not in our bitmask scheme, so no-op here;
     // the keysym comparison handles the rest.
     mask
+}
+
+/// Find the keybind matching a pressed key, honouring shifted keys in a
+/// layout-agnostic way.
+///
+/// The `modified` keysym (e.g. `exclam` for Shift+1 on many layouts) is tried
+/// first, so explicit shifted-symbol bindings keep working. If none matches,
+/// the `base` (unshifted, level-0) keysym is tried, so a binding written as
+/// `{ mods="MS", key="1" }` fires no matter which symbol the active layout maps
+/// onto Shift+1.
+fn match_keybind(
+    keys: &[crate::config::KeyBind],
+    modified: u32,
+    base: u32,
+    mod_bits: u32,
+    extra: impl Fn(&crate::config::KeyBind) -> bool,
+) -> Option<&crate::config::KeyBind> {
+    let mask = clean_mask(mod_bits);
+    let matches = |b: &&crate::config::KeyBind, sym: u32| {
+        b.keysym == sym && clean_mask(b.mods) == mask && extra(b)
+    };
+    keys.iter()
+        .find(|b| matches(b, modified))
+        .or_else(|| (base != modified).then(|| keys.iter().find(|b| matches(b, base))).flatten())
 }
