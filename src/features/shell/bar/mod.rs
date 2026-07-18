@@ -243,6 +243,10 @@ struct Bar {
 
     autocomplete_query: Option<String>,
     autocomplete_index: usize,
+    /// Executable names on `$PATH`, sorted, scanned once when the prompt opens.
+    /// Backs both the inline ghost suggestion and Tab-completion so neither has
+    /// to re-scan the filesystem per keystroke.
+    prompt_commands: Vec<String>,
 
     prompt_history: Vec<String>,
     history_index: Option<usize>,
@@ -273,6 +277,7 @@ impl Bar {
             was_hidden_before_title: false,
             autocomplete_query: None,
             autocomplete_index: 0,
+            prompt_commands: Vec::new(),
             prompt_history: Vec::new(),
             history_index: None,
             history_temp_buffer: String::new(),
@@ -289,6 +294,22 @@ impl Bar {
         if let Some(pool) = self.shm_pool.take() { pool.destroy(); }
         self.shm_fd = None;
         self.pool_bufsize = 0;
+    }
+
+    /// dmenu-style inline suggestion for the run prompt: the tail of the first
+    /// cached command that starts with the typed buffer, e.g. buffer `signa`
+    /// yields `l-desktop` (from `signal-desktop`). Empty when the buffer is
+    /// empty, contains anything but a bare command, or matches nothing. Rendered
+    /// after the cursor; Tab accepts it. Borrows, so it never allocates.
+    fn prompt_ghost(&self) -> &str {
+        if self.prompt_buffer.is_empty() {
+            return "";
+        }
+        self.prompt_commands
+            .iter()
+            .find(|c| c.starts_with(&self.prompt_buffer))
+            .and_then(|c| c.strip_prefix(self.prompt_buffer.as_str()))
+            .unwrap_or("")
     }
 }
 
@@ -523,7 +544,7 @@ impl State {
             let bar = &self.bars[idx];
             let now = std::time::Instant::now();
             let (override_title, title_fg_override) = if bar.is_prompt_active {
-                (Some(format!("Run: {}|", bar.prompt_buffer)), None)
+                (Some(format!("Run: {}|{}", bar.prompt_buffer, bar.prompt_ghost())), None)
             } else {
                 match &bar.title_override {
                     Some((text, until, color)) if now < *until => (Some(text.clone()), *color),
@@ -1080,6 +1101,7 @@ impl State {
                 let bar = &mut state.bars[idx];
                 bar.is_prompt_active = false;
                 bar.prompt_buffer.clear();
+                bar.prompt_commands = Vec::new();
                 bar.history_index = None;
                 if let Some(ls) = &bar.layer_surface {
                     ls.set_keyboard_interactivity(zwlr_layer_surface_v1::KeyboardInteractivity::None);
@@ -1094,7 +1116,13 @@ impl State {
                 let was_hidden = state.bars[idx].was_hidden_before_prompt;
                 let bar = &mut state.bars[idx];
                 bar.is_prompt_active = false;
-                let cmd = bar.prompt_buffer.trim().to_string();
+                // Run the completed command, not just the typed prefix: Enter
+                // accepts the inline ghost suggestion (dmenu-style), so typing
+                // `si` and hitting Enter launches `signal-desktop`. When there's
+                // no suggestion (full command, or args typed) the ghost is empty
+                // and this is just the buffer.
+                let cmd = format!("{}{}", bar.prompt_buffer, bar.prompt_ghost());
+                let cmd = cmd.trim().to_string();
                 bar.history_index = None;
                 bar.autocomplete_query = None;
                 if !cmd.is_empty() {
@@ -1134,6 +1162,7 @@ impl State {
                     }
                 }
                 bar.prompt_buffer.clear();
+                bar.prompt_commands = Vec::new();
                 if let Some(ls) = &bar.layer_surface {
                     ls.set_keyboard_interactivity(zwlr_layer_surface_v1::KeyboardInteractivity::None);
                     if let Some(surf) = &bar.surface { surf.commit(); }
@@ -1161,10 +1190,11 @@ impl State {
                     } else {
                         bar.autocomplete_index += 1;
                     }
-                    if let Some(q) = &bar.autocomplete_query
-                        && let Some(completed) = attempt_autocomplete(q, bar.autocomplete_index)
+                    if let Some(q) = bar.autocomplete_query.clone()
+                        && let Some(completed) =
+                            nth_completion(&bar.prompt_commands, &q, bar.autocomplete_index)
                     {
-                        bar.prompt_buffer = completed;
+                        bar.prompt_buffer = completed.to_string();
                         bar.redraw = true;
                     }
                 }
@@ -1301,10 +1331,12 @@ impl Dispatch<dwl_ipc::zdwl_ipc_output_v2::ZdwlIpcOutputV2, usize> for State {
 
 // ── Low-level I/O helpers ─────────────────────────────────────────────────────
 
-/// Scan `$PATH` for executables whose name starts with `query`; return the
-/// entry at `index % matches.len()` for tab-cycling autocomplete.
+/// Scan `$PATH` (plus the common profile/system dirs) for executable names,
+/// returning them sorted and de-duplicated. Called once when the run prompt
+/// opens; the result is cached in [`Bar::prompt_commands`] and reused for both
+/// the inline ghost suggestion and Tab-completion.
 #[must_use]
-pub fn attempt_autocomplete(query: &str, index: usize) -> Option<String> {
+pub fn scan_path_commands() -> Vec<String> {
     use std::collections::HashSet;
     let mut commands = HashSet::new();
     let mut paths_to_search = Vec::new();
@@ -1353,17 +1385,23 @@ pub fn attempt_autocomplete(query: &str, index: usize) -> Option<String> {
         }
     }
 
-    let mut matches: Vec<String> = commands
-        .into_iter()
-        .filter(|cmd| cmd.starts_with(query))
-        .collect();
-    matches.sort();
+    let mut commands: Vec<String> = commands.into_iter().collect();
+    commands.sort();
+    commands
+}
 
+/// From a sorted command list, the entry at `index` (wrapping) among those
+/// starting with `query`, for Tab-cycling completion. `None` if none match.
+/// Iterating the pre-sorted slice keeps candidates in the same order the inline
+/// ghost suggestion ([`Bar::prompt_ghost`]) shows, so Tab first fills exactly
+/// the ghosted command.
+fn nth_completion<'a>(commands: &'a [String], query: &str, index: usize) -> Option<&'a str> {
+    let matches: Vec<&'a String> =
+        commands.iter().filter(|cmd| cmd.starts_with(query)).collect();
     if matches.is_empty() {
         return None;
     }
-    let target_idx = index % matches.len();
-    matches.into_iter().nth(target_idx)
+    Some(matches[index % matches.len()].as_str())
 }
 
 fn parse_hex_color(s: &str) -> Option<azoth_render::RustColor> {
@@ -1458,6 +1496,7 @@ fn handle_socket_command(buf: &str, state: &mut State, qh: &QueueHandle<State>, 
                 bar.prompt_buffer.clear();
                 bar.autocomplete_query = None;
                 bar.autocomplete_index = 0;
+                bar.prompt_commands = scan_path_commands();
                 bar.history_index = None;
                 if let Some(ls) = &bar.layer_surface {
                     ls.set_keyboard_interactivity(zwlr_layer_surface_v1::KeyboardInteractivity::OnDemand);

@@ -250,7 +250,9 @@ impl Action {
     /// name returned is actually handled. Keep it aligned with `docs/IPC.md` and
     /// the action table in `docs/CONFIGURATION.md`.
     #[must_use]
-    pub fn ipc_command(&self) -> Option<&'static str> {
+    #[cfg_attr(not(test), allow(dead_code))] // used by the IPC parity tests; the
+    // exhaustive match below is the real payload and must compile in every build.
+    pub const fn ipc_command(&self) -> Option<&'static str> {
         match self {
             Self::Spawn(_) => Some("spawn"),
             Self::FocusStack(_) => Some("focusstack"),
