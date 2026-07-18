@@ -148,6 +148,11 @@ pub struct WindowState {
     /// (the child) is unmapped.
     #[cfg(feature = "swallow")]
     pub swallowing: Option<Window>,
+    /// Per-window swallow exemption set by the `on_window_rule` Lua callback
+    /// (`hooks` feature). Honoured by `swallow::find_target` in addition to the
+    /// declarative per-rule `no_swallow` flag.
+    #[cfg(all(feature = "swallow", feature = "hooks"))]
+    pub no_swallow: bool,
 }
 
 impl WindowState {
@@ -210,6 +215,8 @@ impl WindowState {
             is_swallowed: false,
             #[cfg(feature = "swallow")]
             swallowing: None,
+            #[cfg(all(feature = "swallow", feature = "hooks"))]
+            no_swallow: false,
         }
     }
 }

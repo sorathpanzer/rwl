@@ -386,6 +386,7 @@ With the `hooks` feature enabled, the config VM stays alive after loading and
 user-defined callbacks fire on compositor events. Define any of:
 
 ```lua
+function on_window_rule(win)  end   -- runs before arrange; returns rule overrides
 function on_window_open(win)  end   -- window just entered the layout
 function on_window_close(win) end   -- window just left the layout
 function on_tag_switch(old, new) end -- also fired once at startup (old == 0)
@@ -422,6 +423,56 @@ handy for surfacing it, e.g. `on_config_error = function(m) rwl.spawn("notify-se
 the launch tag, so per-tag state (such as a wallpaper) is applied immediately
 instead of only after the first manual tag switch. Use `on_startup` for one-time
 setup that isn't tag-specific.
+
+### Scriptable window rules (`on_window_rule`)
+
+The declarative [`rules`](#rules) table matches on `id`/`title` substrings and
+sets a fixed set of fields. `on_window_rule(win)` is the programmable escape
+hatch: it runs at the same point (once per window, **before** the window is
+arranged, so there is no visible re-tile) and can match on anything Lua can
+express — pattern/regex on the title, `app_id` fallbacks, `win:pid()`,
+`win:parent()`, the time of day, `rwl.pointer()`, and so on.
+
+Return a table of overrides, or `nil`/nothing to make no change. Recognised
+fields (each optional; an omitted field leaves the declarative rule's value
+intact):
+
+| Field | Type | Effect |
+|-------|------|--------|
+| `tags` | bitmask | Place the window on these tags. |
+| `floating` | bool | Force floating (`true`) or tiled (`false`). |
+| `monitor` | number | 0-based monitor index (as `win:monitor()` reports). |
+| `switch_to_tag` | bool | Switch the view to the window's tag when it opens. |
+| `scratch_key` | string | Bind the window to a scratchpad (first char). |
+| `no_swallow` | bool | Exempt the window from terminal swallowing. |
+
+`on_window_rule` layers **on top of** the static `rules` table — the declarative
+rules are applied first, then this callback's return value overrides whichever
+fields it sets. A missing callback, a non-table return, or a Lua error all leave
+the static rules untouched, so a broken predicate never loses a window.
+
+```lua
+function on_window_rule(win)
+    local id, title = win:app_id() or "", win:title() or ""
+
+    -- Regex on the title (impossible with the substring-only rules table):
+    if title:match("^Picture%-in%-Picture$") then
+        return { floating = true }
+    end
+
+    -- app_id fallback: some Chromium PWAs report an empty app_id but a
+    -- recognisable title.
+    if id == "" and title:match("Slack") then
+        return { tags = rwl.tag(9), switch_to_tag = false }
+    end
+
+    -- Send anything launched from a terminal you don't want swallowed straight
+    -- through, and float GIMP's many utility windows onto tag 5.
+    if id == "gimp" then
+        return { tags = rwl.tag(5), floating = true, monitor = 1 }
+    end
+end
+```
 
 Example — dynamic layout that switches tag 2 to columns once it holds ≥3 windows:
 

@@ -104,6 +104,12 @@ pub fn find_target(state: &Rwl, child: &Window, appid: &str, title: &str) -> Opt
         return None;
     }
 
+    // Honour a per-window `no_swallow` set by the `on_window_rule` Lua callback.
+    #[cfg(feature = "hooks")]
+    if with_state(child, |s| s.no_swallow).unwrap_or(false) {
+        return None;
+    }
+
     // Honour per-rule `no_swallow` exemptions (same matcher as `apply_rules`).
     if crate::config::get().rules.iter().any(|r| {
         r.no_swallow

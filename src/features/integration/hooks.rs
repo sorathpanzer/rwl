@@ -5,6 +5,13 @@
 //! be invoked on compositor events:
 //!
 //! ```lua
+//! function on_window_rule(win)      -- runs before the window is arranged;
+//!     -- return a table of rule overrides (or nil for none). Fields: tags,
+//!     -- floating, monitor, switch_to_tag, scratch_key, no_swallow.
+//!     if (win:title() or ""):match("%- YouTube$") then
+//!         return { floating = true, monitor = 1 }
+//!     end
+//! end
 //! function on_window_open(win)
 //!     if win:app_id() == "mpv" then win:set_floating(true) end
 //!     -- dynamic layout: switch tag 2 to columns once it holds >= 3 windows
@@ -1054,4 +1061,75 @@ pub fn unlock(state: &Rwl) {
 pub fn config_error(state: &Rwl, msg: &str) {
     refresh(state);
     fire_named("on_config_error", msg);
+}
+
+/// Rule fields an `on_window_rule` callback may override, layered on top of the
+/// declarative `rules` table. Every field is optional — a `None` leaves the
+/// value computed from the static rules untouched.
+#[derive(Default)]
+pub struct RuleOverride {
+    /// Tag bitmask to place the window on.
+    pub tags: Option<u32>,
+    /// Whether the window should float.
+    pub floating: Option<bool>,
+    /// 0-based monitor index to place the window on (as `win:monitor()` reports).
+    pub monitor: Option<i32>,
+    /// Whether to switch the view to the window's tag(s) when it opens.
+    pub switch_to_tag: Option<bool>,
+    /// Scratchpad key to bind the window to (first char of the string).
+    pub scratch_key: Option<char>,
+    /// Exempt the window from terminal swallowing.
+    pub no_swallow: Option<bool>,
+}
+
+/// Run the `on_window_rule(win)` callback, if defined, and return the rule
+/// overrides it produced. Called synchronously from `apply_rules` *before* the
+/// window is arranged, so overrides act like a rule (no visible re-tile).
+///
+/// The callback returns a table of optional fields — `tags` (bitmask),
+/// `floating` (bool), `monitor` (0-based index), `switch_to_tag` (bool),
+/// `scratch_key` (string), `no_swallow` (bool) — or `nil` to make no change.
+/// A missing callback, a non-table return, or a Lua error all yield `None` so
+/// the static rules stand unchanged and a broken predicate never loses a window.
+#[must_use]
+pub fn window_rule(state: &Rwl, window: &Window) -> Option<RuleOverride> {
+    refresh(state);
+    let window = window.clone();
+    LUA.with(|cell| {
+        let guard = cell.borrow();
+        let lua = guard.as_ref()?;
+        let func = lua.globals().get::<mlua::Function>("on_window_rule").ok()?;
+        let ud = match lua.create_userdata(LuaWindow(window)) {
+            Ok(ud) => ud,
+            Err(e) => {
+                tracing::warn!("[hook] on_window_rule userdata: {e}");
+                return None;
+            }
+        };
+        let tbl: mlua::Table = match func.call(ud) {
+            Ok(mlua::Value::Table(t)) => t,
+            // nil / no return is the common "no override" path — not an error.
+            Ok(_) => return None,
+            Err(e) => {
+                tracing::warn!("[hook] on_window_rule: {e}");
+                return None;
+            }
+        };
+        Some(RuleOverride {
+            tags: tbl.get::<Option<u32>>("tags").ok().flatten(),
+            floating: tbl.get::<Option<bool>>("floating").ok().flatten(),
+            monitor: tbl
+                .get::<Option<i64>>("monitor")
+                .ok()
+                .flatten()
+                .and_then(|m| i32::try_from(m).ok()),
+            switch_to_tag: tbl.get::<Option<bool>>("switch_to_tag").ok().flatten(),
+            scratch_key: tbl
+                .get::<Option<String>>("scratch_key")
+                .ok()
+                .flatten()
+                .and_then(|s| s.chars().next()),
+            no_swallow: tbl.get::<Option<bool>>("no_swallow").ok().flatten(),
+        })
+    })
 }

@@ -1132,12 +1132,15 @@ impl Rwl {
         let cfg = crate::config::get();
         let valid_tags = crate::config::tag_mask();
         // Fixed-size windows are intrinsically floating (mirrors C dwl client_is_float_type).
+        // `mut` because an `on_window_rule` Lua callback may override these below;
+        // without the `hooks` feature nothing reassigns them (unused_mut is fine).
+        #[allow(unused_mut)]
         let RuleAccum {
-            tags: new_tags,
-            is_floating,
-            scratch_key,
-            monitor: rule_monitor,
-            switch_to_tag: switch_to_tag_mask,
+            tags: mut new_tags,
+            mut is_floating,
+            mut scratch_key,
+            monitor: mut rule_monitor,
+            switch_to_tag: mut switch_to_tag_mask,
         } = cfg.rules.iter()
             .filter(|r| {
                 r.id.as_deref().is_none_or(|id| appid.contains(id))
@@ -1164,6 +1167,37 @@ impl Rwl {
                 },
             );
         drop(cfg);
+
+        // Layer the `on_window_rule` Lua predicate on top of the declarative
+        // rules: it runs here (before arrange) so its result acts like a rule.
+        // Each field it returns overrides the accumulated value; anything it omits
+        // is left as the static rules computed it.
+        #[cfg(feature = "hooks")]
+        if let Some(ov) = crate::features::hooks::window_rule(self, window) {
+            if let Some(t) = ov.tags {
+                new_tags = t;
+            }
+            if let Some(f) = ov.floating {
+                is_floating = f;
+            }
+            if let Some(m) = ov.monitor {
+                rule_monitor = m;
+            }
+            if let Some(k) = ov.scratch_key {
+                scratch_key = k;
+            }
+            match ov.switch_to_tag {
+                Some(true) if (new_tags & valid_tags) != 0 => {
+                    switch_to_tag_mask = Some(new_tags & valid_tags);
+                }
+                Some(false) => switch_to_tag_mask = None,
+                _ => {}
+            }
+            #[cfg(feature = "swallow")]
+            if let Some(ns) = ov.no_swallow {
+                with_state_mut(window, |s| s.no_swallow = ns);
+            }
+        }
 
         let mon_idx = self.target_monitor_for_window(rule_monitor);
 
