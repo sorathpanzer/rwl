@@ -69,7 +69,7 @@ pub struct OverviewSettings {
 impl Default for OverviewSettings {
     fn default() -> Self {
         Self {
-            hint_keys:       "asdfghjkl".into(),
+            hint_keys:       "123456789".into(),
             dim:             [0.0, 0.0, 0.0, 0.6],
             padding:         40,
             anim_ms:         180,
