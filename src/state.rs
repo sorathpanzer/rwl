@@ -203,6 +203,10 @@ pub struct Rwl {
     pub sel_mon: usize,
     /// History of active tag masks per monitor, indexed by monitor index.
     pub tag_history: Vec<std::collections::VecDeque<u32>>,
+    /// Remembered per-output layout state (`nmaster` / `mfact` / layout), keyed by
+    /// output (connector) name. Saved when an output is unplugged and re-applied
+    /// when it reappears, so a monitor's layout survives a disconnect.
+    pub monitor_memory: std::collections::HashMap<String, crate::monitor::MonitorMemory>,
     /// Cached bounding box (`min_x`, `min_y`, `max_x`, `max_y`) of all monitor
     /// geometries. Updated in `output_added`/`output_removed` so `clamp_pointer()`
     /// never iterates monitors on the hot pointer-motion path.
@@ -556,6 +560,7 @@ impl Rwl {
             monitors: Vec::new(),
             sel_mon: 0,
             tag_history: Vec::new(),
+            monitor_memory: std::collections::HashMap::new(),
             monitor_bounds: (0, 0, 0, 0),
             windows: Vec::new(),
             focus_stack: Vec::new(),

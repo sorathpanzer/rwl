@@ -58,6 +58,26 @@ pub struct Monitor {
     pub scroll_col: usize,
 }
 
+/// Per-output layout state remembered across an unplug→replug cycle so a
+/// monitor's `nmaster` / `mfact` / layout survive a disconnect — the #1
+/// multi-monitor annoyance. Captured by [`Monitor::snapshot`] on removal and
+/// re-applied by [`Monitor::restore`] when the same output reappears. Stored in
+/// [`crate::state::Rwl::monitor_memory`], keyed by output (connector) name.
+#[derive(Debug, Clone)]
+pub struct MonitorMemory {
+    /// Master area fraction.
+    pub mfact: f64,
+    /// Number of master windows.
+    pub nmaster: i32,
+    /// The two layout slots (current and previous).
+    pub lt: [usize; 2],
+    /// Which layout slot is active (0 or 1).
+    pub sel_lt: usize,
+    /// Per-tag manual layout overrides.
+    #[cfg(feature = "pertag-layouts")]
+    pub tag_lt_override: Vec<Option<usize>>,
+}
+
 impl Monitor {
     /// Create a new [`Monitor`] applying the first matching [`MonitorRule`].
     #[must_use]
@@ -85,6 +105,42 @@ impl Monitor {
             col_facts: Vec::new(),
             #[cfg(any(feature = "monocle", feature = "scroll"))]
             scroll_col: 0,
+        }
+    }
+
+    /// Capture the layout state worth restoring when this output is unplugged and
+    /// later replugged (see [`MonitorMemory`]).
+    #[must_use]
+    pub fn snapshot(&self) -> MonitorMemory {
+        MonitorMemory {
+            mfact: self.mfact,
+            nmaster: self.nmaster,
+            lt: self.lt,
+            sel_lt: self.sel_lt,
+            #[cfg(feature = "pertag-layouts")]
+            tag_lt_override: self.tag_lt_override.clone(),
+        }
+    }
+
+    /// Re-apply a [`MonitorMemory`] captured by [`snapshot`]. Layout indices are
+    /// clamped to the currently configured `layouts` so a config change between
+    /// unplug and replug can never select an out-of-range layout, and the per-tag
+    /// override vector is re-sized to the current tag count.
+    pub fn restore(&mut self, mem: MonitorMemory) {
+        let n_layouts = crate::config::get().layouts.len();
+        let clamp = |i: usize| i.min(n_layouts.saturating_sub(1));
+        self.mfact = mem.mfact;
+        self.nmaster = mem.nmaster;
+        self.lt = [clamp(mem.lt[0]), clamp(mem.lt[1])];
+        self.sel_lt = mem.sel_lt & 1;
+        #[cfg(feature = "pertag-layouts")]
+        {
+            let tag_count = crate::config::get().tag_count as usize;
+            let mut v = vec![None; tag_count];
+            for (slot, saved) in v.iter_mut().zip(mem.tag_lt_override) {
+                *slot = saved.map(clamp);
+            }
+            self.tag_lt_override = v;
         }
     }
 

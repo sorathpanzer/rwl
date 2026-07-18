@@ -55,6 +55,12 @@ impl Rwl {
         mon.m = Rectangle::new(loc.into(), (logical_w, logical_h).into());
         mon.w = mon.m; // will be adjusted by layer-shell exclusive zones
 
+        // If this connector was seen before (unplug→replug), restore its remembered
+        // nmaster / mfact / layout instead of leaving the monitor-rule defaults.
+        if let Some(mem) = self.monitor_memory.remove(&output.name()) {
+            mon.restore(mem);
+        }
+
         self.monitors.push(mon);
         self.tag_history.push(std::collections::VecDeque::new());
         self.update_monitor_bounds();
@@ -160,6 +166,14 @@ impl Rwl {
                     }
                     crate::window::with_state_mut(w, |s| s.mon_idx = target_idx);
                 }
+            }
+
+            // Remember this output's layout state (nmaster / mfact / layout) so a
+            // later replug of the same connector restores it instead of resetting
+            // to the monitor-rule defaults.
+            if let Some(mon) = self.monitors.get(idx) {
+                self.monitor_memory
+                    .insert(output.name(), mon.snapshot());
             }
 
             // monitors.remove(idx) shifts every entry after idx down by one.

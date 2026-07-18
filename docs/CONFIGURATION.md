@@ -210,6 +210,13 @@ Each `monitor_rules` entry (matched by `name`, or the default rule when unnamed)
 | `transform` | `normal` | Output transform / rotation. |
 | `x`, `y` | `-1` | Output position (`-1` = auto-place). |
 
+The `mfact`, `nmaster` and `layout_idx` values here are only the **starting**
+state. Once a monitor is connected, any runtime changes to its master fraction,
+master count and layout (including per-tag layouts) are remembered per output and
+**restored automatically on replug**: unplugging a monitor and plugging the same
+connector back in keeps its layout instead of resetting to these defaults. The
+memory is keyed by output (connector) name and lasts for the compositor session.
+
 ### `pertag_layouts` (`pertag-layouts` feature)
 
 Assign layouts per tag, either fixed or chosen by tiled-window count:
