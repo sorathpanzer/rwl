@@ -48,6 +48,11 @@ pub struct Config {
     pub corner_radius:              u32,
     #[cfg(feature = "gaps")]
     pub gaps_px:                    u32,
+    /// dwm "smartgaps": when true (default), gaps are suppressed for a lone
+    /// tiled window so it fills the work area; when false, gaps apply even to a
+    /// single window.
+    #[cfg(feature = "gaps")]
+    pub smart_gaps:                 bool,
     pub border_color:               Color,
     pub focus_color:                Color,
     pub fullscreen_bg:              Color,
@@ -161,6 +166,8 @@ impl Default for Config {
             corner_radius:              8,
             #[cfg(feature = "gaps")]
             gaps_px:                    0,
+            #[cfg(feature = "gaps")]
+            smart_gaps:                 true,
             border_color: hex_color(0x2222_22ff),
             focus_color:  hex_color(0xdf73_ffff),
             fullscreen_bg: [0.0, 0.0, 0.0, 1.0],

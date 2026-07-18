@@ -141,7 +141,9 @@ shader-based rounded-corner render elements, re-exported through
 
 ### `gaps`
 [`src/features/gaps.rs`](../src/features/gaps.rs) — configurable gaps between
-tiled windows (`windows.gaps_px`), togglable at runtime (`toggle_gaps`).
+tiled windows (`windows.gaps_px`), togglable at runtime (`toggle_gaps`). With
+`windows.smart_gaps` (default on, dwm's smartgaps) a lone tiled window fills the
+work area with no gaps; set it `false` to gap a single window too.
 
 ### `fade`
 [`src/features/fade.rs`](../src/features/fade.rs) — per-window fade-in/fade-out

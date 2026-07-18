@@ -15,3 +15,19 @@ pub fn toggle_gaps() -> bool {
     let was = GAPS_ENABLED.fetch_xor(true, Ordering::Relaxed);
     !was
 }
+
+/// Effective gap size (px) for a layout arranging `n` tiled windows.
+///
+/// Returns `0` when gaps are toggled off, or — with `smart_gaps` (dwm's
+/// smartgaps) — when there is a single tiled window, so a lone window fills the
+/// work area edge-to-edge. Otherwise returns `gaps_px`. Used by every layout so
+/// the gap policy lives in one place.
+#[inline]
+#[must_use]
+pub fn effective(n: usize, smart_gaps: bool, gaps_px: u32) -> i32 {
+    if gaps_enabled() && (n > 1 || !smart_gaps) {
+        i32::try_from(gaps_px).unwrap_or(i32::MAX)
+    } else {
+        0
+    }
+}

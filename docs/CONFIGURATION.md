@@ -61,6 +61,7 @@ below.
 | `fullscreen_bg` | color | black | Backdrop behind fullscreen windows. |
 | `corner_radius` | int | `8` | Rounded-corner radius. | `rounded-corners` |
 | `gaps_px` | int | `0` | Gap between tiled windows. | `gaps` |
+| `smart_gaps` | bool | `true` | Suppress gaps when a single window is tiled (dwm smartgaps); set `false` to gap a lone window too. | `gaps` |
 | `auto_back_empty_tag` | bool | `true` | Return to previous tag when a tag empties. | `auto-back-empty-tag` |
 
 ### `wallpaper`

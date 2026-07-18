@@ -96,7 +96,7 @@ const PIP_KEYS: &[&str] = &[
 
 const WINDOWS_KEYS: &[&str] = &[
     "follow", "border_px", "border_color", "focus_color", "fullscreen_bg",
-    "auto_back_empty_tag", "corner_radius", "gaps_px",
+    "auto_back_empty_tag", "corner_radius", "gaps_px", "smart_gaps",
 ];
 
 #[cfg(feature = "wallpaper")]
@@ -204,6 +204,8 @@ impl Config {
             corner_radius: w.map_or(defaults.corner_radius, |t| lua_u32( t,  "corner_radius", defaults.corner_radius)),
             #[cfg(feature = "gaps")]
             gaps_px:       w.map_or(defaults.gaps_px,       |t| lua_u32( t,  "gaps_px",       defaults.gaps_px)),
+            #[cfg(feature = "gaps")]
+            smart_gaps:    w.map_or(defaults.smart_gaps,    |t| lua_bool(t,  "smart_gaps",    defaults.smart_gaps)),
             border_color:  w.map_or(defaults.border_color,  |t| lua_color(t, "border_color",  defaults.border_color)),
             focus_color:   w.map_or(defaults.focus_color,   |t| lua_color(t, "focus_color",   defaults.focus_color)),
             fullscreen_bg: w.map_or(defaults.fullscreen_bg, |t| lua_color(t, "fullscreen_bg", defaults.fullscreen_bg)),

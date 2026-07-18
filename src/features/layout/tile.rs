@@ -17,7 +17,7 @@ pub fn arrange(monitor: &Monitor, cfacts: &[f64]) -> Vec<Rectangle<i32, Logical>
     let cfg = crate::config::get();
     // No borders for a lone tiled window.
     #[cfg(feature = "gaps")]
-    let gp = if n > 1 && crate::features::gaps::gaps_enabled() { cfg.gaps_px as i32 } else { 0 };
+    let gp = crate::features::gaps::effective(n, cfg.smart_gaps, cfg.gaps_px);
     #[cfg(not(feature = "gaps"))]
     let gp = 0i32;
     let bw = if n > 1 { cfg.border_px as i32 } else { 0 };
