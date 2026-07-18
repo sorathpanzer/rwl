@@ -44,7 +44,9 @@ mod font;
 /// The Lua parser lives in `config::settings`; this owns the shape + defaults.
 #[derive(Debug, Clone)]
 pub struct OverviewSettings {
-    /// Characters used for window hint labels, in priority order.
+    /// Characters used for window hint labels, in priority order. Limited to
+    /// distinct `a`–`z` and `0`–`9` (the embedded [`font`] covers no other
+    /// glyphs); the config loader lowercases and filters this to that set.
     pub hint_keys: String,
     /// Full-output backdrop colour drawn behind the thumbnails (dims the desktop).
     pub dim: Color,

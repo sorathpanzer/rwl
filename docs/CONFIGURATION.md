@@ -367,7 +367,9 @@ Defaults live in `crate::features::bar::BarSettings`.
 
 ### `overview` (`overview` feature)
 
-`hint_keys` (letters used for jump hints), `dim`, `padding`, `anim_ms`,
+`hint_keys` (letters used for jump hints — restricted to distinct `a`–`z` and
+`0`–`9`, since the overview draws hints with an embedded bitmap font; other
+characters are lowercased/dropped with a warning), `dim`, `padding`, `anim_ms`,
 `highlight_color`, `highlight_px`, `border_color`, `border_px`. Defaults in
 `crate::features::overview::OverviewSettings`.
 

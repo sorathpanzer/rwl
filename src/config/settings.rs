@@ -20,7 +20,7 @@ pub(super) fn lua_overview_settings(g: &mlua::Table) -> OverviewSettings {
     let defaults = OverviewSettings::default();
     let Ok(t) = g.get::<mlua::Table>("overview") else { return defaults };
     OverviewSettings {
-        hint_keys:       lua_str(&t, "hint_keys").unwrap_or(defaults.hint_keys),
+        hint_keys:       sanitize_hint_keys(lua_str(&t, "hint_keys"), defaults.hint_keys),
         dim:             lua_color(&t, "dim", defaults.dim),
         padding:         lua_u32(&t, "padding", defaults.padding),
         anim_ms:         lua_u32(&t, "anim_ms", defaults.anim_ms),
@@ -29,6 +29,40 @@ pub(super) fn lua_overview_settings(g: &mlua::Table) -> OverviewSettings {
         border_color:    lua_color(&t, "border_color", defaults.border_color),
         border_px:       lua_u32(&t, "border_px", defaults.border_px),
     }
+}
+
+/// Constrain `hint_keys` to what the overview can actually use. The embedded
+/// bitmap font (`features::overview::font`) only draws `a`–`z` and `0`–`9`, and
+/// the key handler lowercases typed characters before matching a hint — so any
+/// character outside that set would silently render a blank badge or a hint that
+/// can never be typed. Lowercase everything, drop unsupported and duplicate
+/// characters (a repeat would make two thumbnails share one hint), and warn so
+/// the mismatch is visible rather than mysterious. Falls back to the default set
+/// when nothing usable remains.
+#[cfg(feature = "overview")]
+fn sanitize_hint_keys(raw: Option<String>, default: String) -> String {
+    let Some(raw) = raw else { return default };
+    let mut keys = String::with_capacity(raw.len());
+    let mut dropped = String::new();
+    for c in raw.chars() {
+        let lc = c.to_ascii_lowercase();
+        if (lc.is_ascii_lowercase() || lc.is_ascii_digit()) && !keys.contains(lc) {
+            keys.push(lc);
+        } else {
+            dropped.push(c);
+        }
+    }
+    if !dropped.is_empty() {
+        tracing::warn!(
+            "overview.hint_keys: ignoring unsupported or duplicate character(s) {dropped:?} \
+             (only distinct a-z and 0-9 are usable)"
+        );
+    }
+    if keys.is_empty() {
+        tracing::warn!("overview.hint_keys: no usable characters, falling back to default");
+        return default;
+    }
+    keys
 }
 
 // ─── Picture-in-Picture settings ─────────────────────────────────────────────
