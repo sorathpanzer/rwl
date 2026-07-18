@@ -48,9 +48,9 @@ pub(super) fn default_keys() -> Vec<KeyBind> {
         k(M, xkb::KEY_q, Action::KillClient),
         // Layouts
         k(M, xkb::KEY_t,   Action::SetLayout(0)),
-        k(M, xkb::KEY_f,   Action::SetLayout(1)),
-        k(M, xkb::KEY_o,   Action::SetLayout(2)),
-        k(M, xkb::KEY_c,   Action::SetLayout(3)),
+        k(M, xkb::KEY_o,   Action::SetLayout(1)),
+        k(M, xkb::KEY_c,   Action::SetLayout(2)),
+        k(M, xkb::KEY_n,   Action::SetLayout(3)),
         k(M, xkb::KEY_a,   Action::SetLayout(usize::MAX)),
         k(M, xkb::KEY_Tab, Action::CycleLayout),
         // Floating / fullscreen

@@ -162,8 +162,7 @@ impl Default for Config {
             #[cfg(feature = "gaps")]
             gaps_px:                    0,
             border_color: hex_color(0x2222_22ff),
-            // focus_color:  hex_color(0xdf73_ffff),
-            focus_color:  hex_color(0xffff_ffff),
+            focus_color:  hex_color(0xdf73_ffff),
             fullscreen_bg: [0.0, 0.0, 0.0, 1.0],
             #[cfg(feature = "wallpaper")]
             wallpaper:      None,
@@ -178,16 +177,16 @@ impl Default for Config {
             #[cfg(feature = "tag-transition")]
             tag_transition:    true,
             #[cfg(feature = "tag-transition")]
-            tag_transition_ms: 250,
+            tag_transition_ms: 100,
             #[cfg(feature = "startup-zoom")]
-            startup_zoom_ms:        300,
+            startup_zoom_ms:        2000,
             #[cfg(feature = "startup-zoom")]
-            startup_zoom_amount:    0.15,
+            startup_zoom_amount:    0.20,
             #[cfg(feature = "startup-zoom")]
             startup_zoom_direction: crate::features::effects::startup_zoom::ZoomDirection::In,
             #[cfg(feature = "auto-back-empty-tag")]
             auto_back_empty_tag: true,
-            tag_count:          6,
+            tag_count:          9,
             #[cfg(feature = "pertag-layouts")]
             pertag_layouts:        vec![Some(PertagRule::Fixed(0)); 6], // tile (index 0) for all tags by default
             rules:         default_rules(),

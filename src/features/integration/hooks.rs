@@ -345,15 +345,7 @@ const fn layout_kind_name(kind: LayoutKind) -> &'static str {
         #[cfg(feature = "centeredmaster")]
         LayoutKind::CenteredMaster => "centeredmaster",
         LayoutKind::Lua => "lua",
-        #[cfg(not(any(
-            feature = "tile",
-            feature = "monocle",
-            feature = "col",
-            feature = "scroll",
-            feature = "dwindle",
-            feature = "bstack",
-            feature = "centeredmaster",
-        )))]
+        #[cfg(not(any_layout))]
         LayoutKind::Fallback => "default",
     }
 }

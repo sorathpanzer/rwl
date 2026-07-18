@@ -57,15 +57,7 @@ pub fn arrange(monitor: &Monitor, cfacts: &[f64]) -> Vec<Rectangle<i32, Logical>
         LayoutKind::CenteredMaster => centeredmaster::arrange(monitor, cfacts),
         #[cfg(feature = "hooks")]
         LayoutKind::Lua => crate::features::hooks::lua_arrange(monitor, cfacts),
-        #[cfg(not(any(
-            feature = "tile",
-            feature = "monocle",
-            feature = "col",
-            feature = "scroll",
-            feature = "dwindle",
-            feature = "bstack",
-            feature = "centeredmaster",
-        )))]
+        #[cfg(not(any_layout))]
         LayoutKind::Fallback => fallback_arrange(monitor, cfacts),
     }
 }
@@ -100,15 +92,7 @@ pub fn weighted_spans(total: i32, weights: &[f64]) -> Vec<i32> {
 
 /// Built-in arrangement used when no layout feature is compiled in: every
 /// window is stacked to fill the full work area.
-#[cfg(not(any(
-    feature = "tile",
-    feature = "monocle",
-    feature = "col",
-    feature = "scroll",
-    feature = "dwindle",
-    feature = "bstack",
-    feature = "centeredmaster",
-)))]
+#[cfg(not(any_layout))]
 fn fallback_arrange(monitor: &Monitor, cfacts: &[f64]) -> Vec<Rectangle<i32, Logical>> {
     vec![monitor.w; cfacts.len()]
 }

@@ -546,16 +546,16 @@ fn parse_monitor_rule(tbl: &mlua::Table) -> MonitorRule {
 ///   * an array of rule tables (multi-monitor): `monitor_rules = { { name=… }, … }`
 ///   * a single flat rule table (like the `windows`/`mouse` blocks):
 ///     `monitor_rules = { mfact = 0.55, vrr = "off", … }`
-/// An empty or absent table falls back to the compiled-in default.
+///     An empty or absent table falls back to the compiled-in default.
 fn lua_monitor_rules(t: &mlua::Table, default: Vec<MonitorRule>) -> Vec<MonitorRule> {
     let Ok(arr) = t.get::<mlua::Table>("monitor_rules") else { return default; };
-    let out: Vec<MonitorRule> = arr.clone().sequence_values::<mlua::Table>()
+    let out: Vec<MonitorRule> = arr.sequence_values::<mlua::Table>()
         .filter_map(|v| v.ok().map(|tbl| parse_monitor_rule(&tbl)))
         .collect();
     if !out.is_empty() { return out; }
     // No array elements: treat the table itself as a single flat rule, unless it
     // is entirely empty (then keep the default).
-    if arr.clone().pairs::<mlua::Value, mlua::Value>().next().is_none() {
+    if arr.pairs::<mlua::Value, mlua::Value>().next().is_none() {
         default
     } else {
         vec![parse_monitor_rule(&arr)]

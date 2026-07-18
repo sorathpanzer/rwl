@@ -58,15 +58,7 @@ pub enum LayoutKind {
     Lua,
     /// Built-in fallback used only when no layout feature is compiled in, so
     /// the compositor still tiles (every window gets the full work area).
-    #[cfg(not(any(
-        feature = "tile",
-        feature = "monocle",
-        feature = "col",
-        feature = "scroll",
-        feature = "dwindle",
-        feature = "bstack",
-        feature = "centeredmaster",
-    )))]
+    #[cfg(not(any_layout))]
     Fallback,
 }
 
@@ -116,15 +108,7 @@ pub const fn default_layout_kind() -> LayoutKind {
         feature = "centeredmaster",
     ))]
     { LayoutKind::CenteredMaster }
-    #[cfg(not(any(
-        feature = "tile",
-        feature = "monocle",
-        feature = "col",
-        feature = "scroll",
-        feature = "dwindle",
-        feature = "bstack",
-        feature = "centeredmaster",
-    )))]
+    #[cfg(not(any_layout))]
     { LayoutKind::Fallback }
 }
 
@@ -305,21 +289,14 @@ pub const fn layout_kind_name(kind: LayoutKind) -> &'static str {
         LayoutKind::CenteredMaster => "centeredmaster",
         #[cfg(feature = "hooks")]
         LayoutKind::Lua => "lua",
-        #[cfg(not(any(
-            feature = "tile",
-            feature = "monocle",
-            feature = "col",
-            feature = "scroll",
-            feature = "dwindle",
-            feature = "bstack",
-            feature = "centeredmaster",
-        )))]
+        #[cfg(not(any_layout))]
         LayoutKind::Fallback => "default",
     }
 }
 
 // ─── default data ─────────────────────────────────────────────────────────────
 
+#[cfg(feature = "scratchpad")]
 fn r(id: Option<&str>, title: Option<&str>, tags: u32, stag: bool, float: bool, sc: char) -> Rule {
     Rule {
         id:           id.map(String::from),
@@ -334,11 +311,9 @@ fn r(id: Option<&str>, title: Option<&str>, tags: u32, stag: bool, float: bool, 
 }
 
 #[cfg_attr(not(feature = "scratchpad"), allow(unused_mut))]
+#[allow(clippy::vec_init_then_push)] // push is #[cfg]-gated on scratchpad
 pub(super) fn default_rules() -> Vec<Rule> {
-    let mut v = vec![
-        r(Some("chromium-browser"), None,              1,      true,  false, '\0'),
-        r(Some("foot"),             None,              1 << 1, true,  false, '\0'),
-    ];
+    let mut v = Vec::new();
     #[cfg(feature = "scratchpad")]
     v.push(r(Some("scratchpad"), None, 0, false, true, 's'));
     v
@@ -347,15 +322,7 @@ pub(super) fn default_rules() -> Vec<Rule> {
 #[allow(clippy::vec_init_then_push)] // pushes are individually #[cfg]-gated
 pub(super) fn default_layouts() -> Vec<LayoutDef> {
     let mut v = Vec::new();
-    #[cfg(not(any(
-        feature = "tile",
-        feature = "monocle",
-        feature = "col",
-        feature = "scroll",
-        feature = "dwindle",
-        feature = "bstack",
-        feature = "centeredmaster",
-    )))]
+    #[cfg(not(any_layout))]
     v.push(LayoutDef { symbol: "[]=".into(), kind: LayoutKind::Fallback });
     #[cfg(feature = "tile")]
     v.push(LayoutDef { symbol: "[]=".into(), kind: LayoutKind::Tile });
@@ -379,9 +346,5 @@ pub(super) fn default_monitor_rules() -> Vec<MonitorRule> {
 }
 
 pub(super) fn default_auto_spawn() -> Vec<Option<Vec<String>>> {
-    vec![
-        Some(vec!["chromium".into()]),
-        Some(vec!["foot".into()]),
-        None, None, None, None,
-    ]
+    vec![None, None, None, None, None, None]
 }
