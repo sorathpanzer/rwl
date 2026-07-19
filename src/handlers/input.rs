@@ -347,9 +347,14 @@ impl Rwl {
         // selection (the compositor denies set_selection from a non-focused
         // client).  wlroots/dwl suppress focus changes during an implicit grab
         // for exactly this reason.
+        //
+        // Also suppress it in the monocle layout: every monocle window shares the
+        // full-screen rect, so the pointer is "over" all of them at once and
+        // sliding it to a screen edge would flip focus to the stacked neighbour.
         if crate::config::get().mouse_focus
             && self.cursor_mode == CursorMode::Normal
             && !self.passthrough
+            && !self.sel_layout_is_monocle()
             && let Some(w) = self.space.element_under(new_loc).map(|(w, _)| w.clone())
             && self.focused_window() != Some(&w)
         {
@@ -428,11 +433,12 @@ impl Rwl {
             CursorMode::Normal | CursorMode::Pressed => {}
         }
 
-        // Mouse focus: only focus when cursor is over a window, and never while a
-        // pointer button is held (implicit grab — see relative motion handler).
+        // Mouse focus: only focus when cursor is over a window, never while a
+        // pointer button is held, and never in monocle (see relative handler).
         if crate::config::get().mouse_focus
             && self.cursor_mode == CursorMode::Normal
             && !self.passthrough
+            && !self.sel_layout_is_monocle()
             && let Some(w) = self.space.element_under(new_loc).map(|(w, _)| w.clone())
             && self.focused_window() != Some(&w)
         {
@@ -636,6 +642,24 @@ impl Rwl {
 
         pointer.axis(self, frame);
         pointer.frame(self);
+    }
+
+    /// Whether the selected monitor's active layout is monocle. Used to
+    /// suppress focus-follows-mouse there: monocle stacks every window on the
+    /// same full-screen rect, so the pointer is over all of them at once and
+    /// nudging it to a screen edge would otherwise flip focus to a neighbour.
+    #[cfg(feature = "monocle")]
+    #[must_use]
+    fn sel_layout_is_monocle(&self) -> bool {
+        self.sel_monitor()
+            .is_some_and(|m| m.layout_kind() == crate::config::LayoutKind::Monocle)
+    }
+
+    /// Without the monocle layout compiled in there is nothing to suppress.
+    #[cfg(not(feature = "monocle"))]
+    #[must_use]
+    fn sel_layout_is_monocle(&self) -> bool {
+        false
     }
 
     /// Clamp a pointer position to the union of all monitor geometries.
