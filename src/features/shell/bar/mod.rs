@@ -323,6 +323,27 @@ type SharedBlocks = Arc<Mutex<(Vec<config::Block>, String, bool)>>;
 /// the blocks thread to the event loop.
 type SharedStatus = Arc<Mutex<(String, Vec<u32>)>>;
 
+/// Output of a hover command, produced by a worker thread and handed back to the
+/// event loop through [`SharedHover`]. Only shown if `generation` still matches
+/// the live hover request when it arrives (so quickly crossing several blocks
+/// never pops up a stale widget).
+struct HoverResult {
+    generation: u64,
+    bar_idx:    usize,
+    block_idx:  usize,
+    lines:      Vec<String>,
+}
+
+/// Slot a hover worker thread writes its finished output into; drained by the
+/// event loop when the hover wake pipe fires.
+type SharedHover = Arc<Mutex<Option<HoverResult>>>;
+
+/// Hard caps on the hover widget's buffer dimensions so a pathological
+/// `hover_command` (thousands of lines, or one enormous line) can neither
+/// overflow the u32 geometry math nor force a huge SHM allocation.
+const WIDGET_MAX_LINES: usize = 256;
+const WIDGET_MAX_DIM: u32 = 4096;
+
 /// Click/hover behaviour for one status block.
 #[derive(Clone, Default)]
 struct BlockAction {
@@ -380,6 +401,14 @@ struct State {
     hover_target: Option<(usize, usize)>,
     /// The floating hover widget (a separate small layer surface), if shown.
     widget: Option<Widget>,
+    /// Monotonic hover request id, bumped every time the pointer moves onto a new
+    /// block. A worker's result is only shown while it still carries the current
+    /// id, so a slow command whose pointer has since moved on is discarded.
+    hover_generation: u64,
+    /// Slot a hover worker posts its command output into; read on the event loop.
+    hover_shared: SharedHover,
+    /// Write end of the hover wake pipe, cloned into each worker thread.
+    hover_wake_w: Arc<OwnedFd>,
 
     shared_blocks: SharedBlocks,
 
@@ -396,7 +425,8 @@ struct State {
 // No unsafe impl needed.
 
 impl State {
-    const fn new(cfg: Config, font: Font, bar_height: u32, textpadding: u32, wayland_socket: String, shared_blocks: SharedBlocks) -> Self {
+    #[allow(clippy::too_many_arguments)]
+    const fn new(cfg: Config, font: Font, bar_height: u32, textpadding: u32, wayland_socket: String, shared_blocks: SharedBlocks, hover_shared: SharedHover, hover_wake_w: Arc<OwnedFd>) -> Self {
         Self {
             cfg, font, bar_height, textpadding,
             tags: vec![], layouts: vec![], bars: vec![],
@@ -406,6 +436,7 @@ impl State {
             pointer_focus: None, pointer_x: 0.0,
             block_actions: Vec::new(),
             hover_target: None, widget: None,
+            hover_generation: 0, hover_shared, hover_wake_w,
             shared_blocks,
             wayland_socket,
             stdin_buf: String::new(), ready: false,
@@ -895,16 +926,19 @@ impl State {
 
     /// Recompute which block the pointer hovers on bar `idx`.  When it crosses
     /// into a block with a `hover_command`, (re)build the floating widget.
-    fn update_hover(&mut self, idx: usize, qh: &QueueHandle<Self>) {
+    fn update_hover(&mut self, idx: usize, _qh: &QueueHandle<Self>) {
         let target = self.block_at(idx, self.pointer_x).map(|k| (idx, k));
         if target == self.hover_target { return; }
         self.hover_target = target;
         self.close_widget();
+        // Invalidate any in-flight hover worker: its result must not be shown now
+        // that the pointer has moved to a different block (or off the bar).
+        self.hover_generation = self.hover_generation.wrapping_add(1);
         if let Some((bar_idx, block_idx)) = target {
             let cmd = self.block_actions.get(block_idx)
                 .map(|a| a.hover_command.clone()).unwrap_or_default();
             if !cmd.is_empty() {
-                self.open_widget(bar_idx, block_idx, &cmd, qh);
+                self.request_widget(bar_idx, block_idx, cmd);
             }
         }
     }
@@ -923,24 +957,47 @@ impl State {
         }
     }
 
-    /// Run a block's `hover_command` and pop up a widget showing its output,
-    /// anchored just below (or above) the block on the bar's output.
+    /// Kick off a block's `hover_command` on a worker thread. The output is posted
+    /// back to `hover_shared` and the event loop is woken through `hover_wake_w`;
+    /// the widget is only built if the pointer is still on the same block when the
+    /// result arrives (the generation still matches). Running the command
+    /// off-thread keeps a slow `hover_command` from freezing the bar event loop.
+    fn request_widget(&self, bar_idx: usize, block_idx: usize, cmd: String) {
+        let generation = self.hover_generation;
+        let wayland_socket = self.wayland_socket.clone();
+        let shared = Arc::clone(&self.hover_shared);
+        let wake = Arc::clone(&self.hover_wake_w);
+        let spawned = thread::Builder::new().name("bar-hover".into()).spawn(move || {
+            // `output()` waits on its own child, so this reaps itself — no zombie.
+            let text = std::process::Command::new("sh")
+                .arg("-c").arg(&cmd)
+                .env("WAYLAND_DISPLAY", &wayland_socket)
+                .output().ok()
+                .filter(|o| o.status.success())
+                .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+                .unwrap_or_default();
+            let mut lines: Vec<String> = text.trim_end_matches('\n').lines().map(str::to_owned).collect();
+            while lines.last().is_some_and(|l| l.trim().is_empty()) { lines.pop(); }
+            if lines.is_empty() { return; }
+            *shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+                Some(HoverResult { generation, bar_idx, block_idx, lines });
+            let _ = rustix::io::write(&*wake, b"x");
+        });
+        if spawned.is_err() {
+            tracing::warn!("[bar] failed to spawn hover worker");
+        }
+    }
+
+    /// Pop up a widget showing `lines`, anchored just below (or above) the block
+    /// on the bar's output. Called on the event loop once a hover worker delivers.
     #[allow(clippy::cast_possible_truncation)]
-    fn open_widget(&mut self, bar_idx: usize, block_idx: usize, cmd: &str, qh: &QueueHandle<Self>) {
+    fn open_widget_with_text(&mut self, bar_idx: usize, block_idx: usize, mut lines: Vec<String>, qh: &QueueHandle<Self>) {
         let (Some(compositor), Some(layer_shell)) = (self.compositor.clone(), self.layer_shell.clone())
         else { return };
-
-        // Run the command (fast utilities like `cal`; a short blocking call).
-        let text = std::process::Command::new("sh")
-            .arg("-c").arg(cmd)
-            .env("WAYLAND_DISPLAY", &self.wayland_socket)
-            .output().ok()
-            .filter(|o| o.status.success())
-            .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
-            .unwrap_or_default();
-        let mut lines: Vec<String> = text.trim_end_matches('\n').lines().map(str::to_owned).collect();
-        while lines.last().is_some_and(|l| l.trim().is_empty()) { lines.pop(); }
         if lines.is_empty() { return; }
+        // Bound the line count so the u32 geometry math and SHM allocation below
+        // stay sane no matter what the hover command printed.
+        lines.truncate(WIDGET_MAX_LINES);
 
         // Widget geometry in buffer pixels (same coordinate space as the bar).
         let pad = self.textpadding;
@@ -951,11 +1008,15 @@ impl State {
             .map(|l| self.font.measure(&azoth_render::strip_ansi(l), 0))
             .max().unwrap_or(0);
         if text_w == 0 { return; }
-        let width  = text_w + pad * 2;
-        let height = line_h * lines.len() as u32 + pad * 2;
+        let width  = text_w.saturating_add(pad.saturating_mul(2)).min(WIDGET_MAX_DIM);
+        let height = line_h.saturating_mul(lines.len() as u32)
+            .saturating_add(pad.saturating_mul(2))
+            .min(WIDGET_MAX_DIM);
 
-        // Align the widget's right edge to the block's right edge on the bar.
-        let bar = &self.bars[bar_idx];
+        // Align the widget's right edge to the block's right edge on the bar. The
+        // command ran off-thread, so re-fetch the bar defensively: an output may
+        // have been unplugged while it ran.
+        let Some(bar) = self.bars.get(bar_idx) else { return };
         let Some(&full_w) = bar.block_pix_ends.last() else { return };
         if full_w == 0 { return; }
         let text_start  = bar.width.saturating_sub(bar.textpadding).saturating_sub(full_w);
@@ -1071,7 +1132,9 @@ impl State {
                 command.env("XCURSOR_SIZE", cfg.cursor_size.to_string());
             }
         }
-        command.spawn().ok();
+        // Double-fork so the click's program can't linger as a zombie of the
+        // compositor process (see `crate::actions::spawn_reparented`).
+        crate::actions::spawn_reparented(&mut command).ok();
     }
 }
 
@@ -1150,7 +1213,9 @@ impl State {
                             command.env("XCURSOR_SIZE", cfg.cursor_size.to_string());
                         }
                     }
-                    command.spawn().ok();
+                    // Double-fork so the launched program can't linger as a
+                    // zombie of the compositor (see `crate::actions::spawn_reparented`).
+                    crate::actions::spawn_reparented(&mut command).ok();
                     if bar.prompt_history.last() != Some(&cmd) {
                         bar.prompt_history.push(cmd);
                         // Cap the run history so it can't grow unbounded over the
@@ -1680,6 +1745,7 @@ fn run_event_loop(
     listener: &UnixListener,
     stop: &Arc<AtomicBool>,
     blocks_pipe: &OwnedFd,
+    hover_pipe: &OwnedFd,
     latest_status: &SharedStatus,
     ipc_fd: OwnedFd,
     notification_flag: &AtomicBool,
@@ -1689,6 +1755,7 @@ fn run_event_loop(
         Err(e) => { tracing::warn!("[bar] fcntl ipc_fd: {e}"); }
     }
 
+    let hover_shared = Arc::clone(&state.hover_shared);
     let mut to_redraw: Vec<usize> = Vec::new();
     while !stop.load(Ordering::Relaxed) {
         if let Err(e) = event_queue.flush() {
@@ -1702,6 +1769,7 @@ fn run_event_loop(
             PollFd::new(listener,      PollFlags::IN),
             PollFd::new(&ipc_fd,       PollFlags::IN),
             PollFd::new(blocks_pipe,   PollFlags::IN),
+            PollFd::new(hover_pipe,    PollFlags::IN),
         ];
         let now = std::time::Instant::now();
         let min_override = state.bars.iter()
@@ -1722,6 +1790,7 @@ fn run_event_loop(
         let sock_ready   = fds[1].revents().contains(PollFlags::IN);
         let ipc_ready    = fds[2].revents().contains(PollFlags::IN);
         let blocks_ready = fds[3].revents().contains(PollFlags::IN);
+        let hover_ready  = fds[4].revents().contains(PollFlags::IN);
 
         if wl_ready {
             if let Some(guard) = read_guard
@@ -1815,6 +1884,28 @@ fn run_event_loop(
                 if let Some(idx) = state.pointer_focus {
                     state.update_hover(idx, qh);
                 }
+            }
+        }
+
+        if hover_ready {
+            let mut drain = [0u8; 64];
+            loop {
+                match rustix::io::read(hover_pipe, &mut drain) {
+                    Ok(0) | Err(_) => break,
+                    Ok(_) => {}
+                }
+            }
+            let result = hover_shared.lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .take();
+            // Only show it if the pointer is still on the same block (generation
+            // and target both match) and no widget is already up.
+            if let Some(r) = result
+                && r.generation == state.hover_generation
+                && state.hover_target == Some((r.bar_idx, r.block_idx))
+                && state.widget.is_none()
+            {
+                state.open_widget_with_text(r.bar_idx, r.block_idx, r.lines, qh);
             }
         }
 
@@ -2041,7 +2132,24 @@ fn run_bar(ipc_fd: OwnedFd, settings: BarSettings, wayland_socket: String, notif
 
     let shared_blocks: SharedBlocks = Arc::new(Mutex::new((blocks, delim, false)));
 
-    let mut state = State::new(cfg, font, bar_height, textpadding, wayland_socket, Arc::clone(&shared_blocks));
+    // Hover-widget plumbing: worker threads run the (possibly slow) hover command
+    // off the event loop and post the result here; the loop wakes via this pipe.
+    let (hover_pipe_r, hover_pipe_w) = match rustix::pipe::pipe() {
+        Ok(pair) => pair,
+        Err(e) => {
+            tracing::error!("[bar] hover pipe: {e}");
+            azoth_render::fini_fcft();
+            return;
+        }
+    };
+    match fcntl_getfl(&hover_pipe_r) {
+        Ok(flags) => { fcntl_setfl(&hover_pipe_r, flags | OFlags::NONBLOCK).ok(); }
+        Err(e) => { tracing::warn!("[bar] fcntl hover pipe: {e}"); }
+    }
+    let hover_shared: SharedHover = Arc::new(Mutex::new(None));
+    let hover_wake_w = Arc::new(hover_pipe_w);
+
+    let mut state = State::new(cfg, font, bar_height, textpadding, wayland_socket, Arc::clone(&shared_blocks), Arc::clone(&hover_shared), hover_wake_w);
     state.tags = initial_tags;
     state.block_actions = block_actions;
     if event_queue.roundtrip(&mut state).is_err() {
@@ -2152,5 +2260,5 @@ fn run_bar(ipc_fd: OwnedFd, settings: BarSettings, wayland_socket: String, notif
     });
 
     wait_for_configure(&mut state, &qh, &mut event_queue);
-    run_event_loop(&conn, event_queue, &qh, state, &listener, &stop, &blocks_pipe_r, &latest_status, ipc_fd, notification_flag);
+    run_event_loop(&conn, event_queue, &qh, state, &listener, &stop, &blocks_pipe_r, &hover_pipe_r, &latest_status, ipc_fd, notification_flag);
 }

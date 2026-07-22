@@ -29,7 +29,10 @@ pub fn getcmd(block: &Block) -> String {
                 .saturating_sub(block.icon.len())
                 .saturating_sub(2); // rough delim allowance
             let trimmed = raw.trim_end_matches('\n');
-            trimmed[..trimmed.len().min(max_len)].to_owned()
+            // Truncate by characters, not bytes: slicing `trimmed[..max_len]`
+            // panics when `max_len` lands inside a multi-byte UTF-8 sequence
+            // (very common in status output: `°C`, `€`, icons, accents).
+            trimmed.chars().take(max_len).collect::<String>()
         })
         .unwrap_or_default();
     format!("{}{}", block.icon, suffix)

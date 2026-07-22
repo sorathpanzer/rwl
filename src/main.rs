@@ -196,8 +196,8 @@ fn run(startup_cmd: Option<String>) -> Result<()> {
             let mut command = std::process::Command::new("/bin/sh");
             command.arg("-c").arg(&cmd).stdin(reader);
             state.configure_child(&mut command);
-            match command.spawn() {
-                Ok(_) => {
+            match actions::spawn_reparented(&mut command) {
+                Ok(()) => {
                     state.ipc_out = Some(writer);
                 }
                 Err(e) => {
@@ -209,9 +209,8 @@ fn run(startup_cmd: Option<String>) -> Result<()> {
             let mut command = std::process::Command::new("/bin/sh");
             command.arg("-c").arg(&cmd);
             state.configure_child(&mut command);
-            match command.spawn() {
-                Ok(_) => {}
-                Err(e) => tracing::warn!("Failed to spawn startup command: {}", e),
+            if let Err(e) = actions::spawn_reparented(&mut command) {
+                tracing::warn!("Failed to spawn startup command: {}", e);
             }
         }
     }
@@ -235,8 +234,8 @@ fn run(startup_cmd: Option<String>) -> Result<()> {
                     let mut command = std::process::Command::new(prog);
                     command.args(args).stdin(reader);
                     state.configure_child(&mut command);
-                    match command.spawn() {
-                        Ok(_) => { state.ipc_out = Some(writer); }
+                    match actions::spawn_reparented(&mut command) {
+                        Ok(()) => { state.ipc_out = Some(writer); }
                         Err(e) => tracing::warn!("Failed to spawn bar_cmd: {e}"),
                     }
                 }

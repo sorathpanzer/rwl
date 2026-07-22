@@ -13,6 +13,39 @@ use crate::window::{
     window_tags, window_visible_on, with_state, with_state_mut,
 };
 
+/// Spawn a fire-and-forget child that can never become a zombie of this process.
+///
+/// A compositor never `wait()`s on the programs it launches, so on Linux every
+/// exited child would linger as a zombie until the compositor itself quits. We
+/// deliberately avoid a global `SIGCHLD` → `SIG_IGN` handler: the embedded bar
+/// runs in this same process and drives its status blocks with
+/// `Command::output()`, which relies on `waitpid` succeeding — `SIG_IGN` would
+/// make those calls fail with `ECHILD` and blank the bar.
+///
+/// Instead we double-fork: `Command::spawn` forks the intermediate child, whose
+/// `pre_exec` closure forks once more and exits immediately, reparenting the
+/// real program to init (pid 1), which reaps it. We then `wait()` the
+/// intermediate — it exits the instant it has forked, so this returns at once
+/// and leaves no zombie either. The second `fork` runs in an already-forked,
+/// single-threaded child and only calls async-signal-safe functions, so it is
+/// safe in this multithreaded process.
+#[allow(unsafe_code)]
+pub fn spawn_reparented(command: &mut std::process::Command) -> std::io::Result<()> {
+    use std::os::unix::process::CommandExt as _;
+    // SAFETY: the closure runs in the forked child before exec and calls only
+    // the async-signal-safe `fork` / `_exit`.
+    unsafe {
+        command.pre_exec(|| match libc::fork() {
+            -1 => Err(std::io::Error::last_os_error()),
+            0 => Ok(()),          // grandchild: proceed to exec the real program
+            _ => libc::_exit(0),  // intermediate: exit now; the parent reaps it below
+        });
+    }
+    let mut child = command.spawn()?;
+    let _ = child.wait();
+    Ok(())
+}
+
 impl Rwl {
     pub fn zoom(&mut self) {
         let Some(focused) = self.focused_window().cloned() else {
@@ -464,9 +497,8 @@ impl Rwl {
         // Place the child in its own process group so signals sent to the
         // compositor's process group don't reach spawned programs.
         command.process_group(0);
-        match command.spawn() {
-            Ok(_) => {}
-            Err(e) => tracing::warn!("spawn failed: {}", e),
+        if let Err(e) = spawn_reparented(&mut command) {
+            tracing::warn!("spawn failed: {e}");
         }
     }
 

@@ -85,12 +85,18 @@ pub fn register(
 const MAX_CMD_BYTES: u64 = 64 * 1024;
 
 fn cmd_handle(mut stream: UnixStream, state: &mut Rwl) {
-    // This runs on the compositor event loop, so the read MUST be bounded in
-    // both time and size: a client that connects and then stalls (or floods)
-    // must not freeze the whole session or exhaust memory. The socket is 0600
-    // (owner-only), so this is defence-in-depth against buggy/hostile local
-    // clients — a legitimate `rwl msg` writes its command and closes at once.
+    // This runs on the compositor event loop, so both the read AND the write
+    // MUST be bounded in time and size: a client that connects and then stalls
+    // (or floods, or never reads its reply) must not freeze the whole session or
+    // exhaust memory. The query path (`status`/`clients`/`info`) writes back on
+    // this still-blocking stream, so without a write timeout a client that never
+    // drains its socket could wedge the compositor once the kernel buffer fills.
+    // The socket is 0600 (owner-only), so this is defence-in-depth against
+    // buggy/hostile local clients — a legitimate `rwl msg` writes its command
+    // and closes at once. (`subscribe`/`watch` switch the stream to non-blocking
+    // before streaming, so these timeouts only guard the one-shot paths.)
     let _ = stream.set_read_timeout(Some(std::time::Duration::from_millis(200)));
+    let _ = stream.set_write_timeout(Some(std::time::Duration::from_millis(200)));
     let mut buf = String::new();
     if Read::by_ref(&mut stream)
         .take(MAX_CMD_BYTES)
