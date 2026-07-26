@@ -234,6 +234,12 @@ pub enum Action {
     /// the locker's own buffer, never to a client). Not user-bindable.
     #[cfg(feature = "lock")]
     LockConsume,
+    /// Internal: swallow a key event (e.g. the *release* of a key whose *press*
+    /// triggered a compositor keybinding) so it never reaches a client. Prevents
+    /// a bound key like Escape (Mod+Escape) leaking to a window that gains focus
+    /// mid-chord — which would otherwise make e.g. Firefox exit fullscreen.
+    /// Not user-bindable and not exposed over IPC.
+    Consumed,
 }
 
 #[cfg(feature = "ipc")]
@@ -301,6 +307,7 @@ impl Action {
             Self::Lock => Some("lock"),
             #[cfg(feature = "lock")]
             Self::LockConsume => None,
+            Self::Consumed => None,
         }
     }
 }

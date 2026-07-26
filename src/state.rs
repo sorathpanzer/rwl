@@ -187,6 +187,11 @@ pub struct Rwl {
     pub key_repeat_timer: Option<RegistrationToken>,
     /// The action being repeated by `key_repeat_timer`.
     pub key_repeat_action: Option<Action>,
+    /// Key codes whose *press* was consumed by a compositor keybinding, so their
+    /// matching *release* is swallowed too. Without this, a bound key like
+    /// Escape (Mod+Escape) leaks its release to whichever window gained focus
+    /// during the binding — making e.g. Firefox exit fullscreen.
+    pub intercepted_keys: std::collections::HashSet<u32>,
     /// Whether the cursor is currently hidden due to inactivity.
     /// Kept separate from `cursor_status` so the client's surface cursor is
     /// preserved through hide/show cycles (avoids the client needing to
@@ -555,6 +560,7 @@ impl Rwl {
             cursor_hide_timer: None,
             key_repeat_timer: None,
             key_repeat_action: None,
+            intercepted_keys: std::collections::HashSet::new(),
             cursor_hidden: false,
             last_cursor_surface: None,
             monitors: Vec::new(),
@@ -1303,7 +1309,7 @@ impl Rwl {
             let serial = SERIAL_COUNTER.next_serial();
             kb.set_focus(self, surface, serial);
         }
-    
+
         self.update_borders();
     
         if self.focus_stack.first() != prev_focused.as_ref() {
@@ -1457,17 +1463,6 @@ impl Rwl {
                 with_state_mut(w, |s| s.saved_loc = Some(geom.loc));
             }
             self.space.unmap_elem(w);
-            // A fullscreen client that is merely hidden by a tag switch must not
-            // be sent a deactivating configure: browsers (Firefox/YouTube DOM
-            // fullscreen) treat the loss of xdg_toplevel::State::Activated as a
-            // window blur and drop out of fullscreen.  Leaving its state intact
-            // (still Fullscreen + Activated) keeps it fullscreen while off-screen;
-            // arrange() re-configures it correctly the moment its tag returns.
-            // This is why view_prev appeared to preserve fullscreen while
-            // view_next_occ_tag (which lands on another occupied tag) did not.
-            if with_state(w, |s| s.is_fullscreen).unwrap_or(false) {
-                continue;
-            }
             // Strip Activated (and tiled) states so clients that derive their
             // "focused" status from xdg_toplevel state (e.g. mpv) see the
             // focus change when their tag is hidden.

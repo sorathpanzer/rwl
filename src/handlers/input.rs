@@ -74,6 +74,16 @@ impl Rwl {
                     // Only intercept key presses, not releases — applies everywhere,
                     // including passthrough mode, so TogglePassthrough fires once.
                     if key_state == KeyState::Released {
+                        // Swallow the release of a key whose press we consumed as a
+                        // keybinding. Otherwise the release is forwarded to whatever
+                        // window has focus now — which, if the binding changed focus
+                        // mid-chord (e.g. Mod+Escape switching tags back to Firefox),
+                        // delivers a stray Escape to that window and makes it exit
+                        // fullscreen. Backslash-bound actions never showed this
+                        // because Backslash is meaningless to the client.
+                        if state.intercepted_keys.remove(&u32::from(key_code)) {
+                            return FilterResult::Intercept(Action::Consumed);
+                        }
                         return FilterResult::Forward;
                     }
 
@@ -135,6 +145,13 @@ impl Rwl {
                 },
             )
         }; // cfg (RwLockReadGuard) dropped here, before dispatch()
+
+        // Remember a press we consumed as a keybinding so its matching release is
+        // swallowed too (handled in the filter's Released branch above), keeping
+        // the bound key from leaking to a client that gains focus mid-chord.
+        if key_state == KeyState::Pressed && action_opt.is_some() {
+            self.intercepted_keys.insert(u32::from(key_code));
+        }
 
         // On any key release, stop the key-repeat timer so held compositor
         // keybindings (e.g. Mod+Return, Mod+Q) stop firing.

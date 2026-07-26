@@ -380,6 +380,9 @@ impl Rwl {
             // Keystroke already consumed into the locker's buffer; nothing to do.
             #[cfg(feature = "lock")]
             Action::LockConsume => {}
+            // Internal no-op: a swallowed key event (e.g. the release of a bound
+            // key). Nothing to do — the point is that it never reached a client.
+            Action::Consumed => {}
         }
 
         // Fire on_tag_switch if the selected monitor's tags changed (and we did
