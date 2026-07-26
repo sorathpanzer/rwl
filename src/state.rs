@@ -1457,6 +1457,17 @@ impl Rwl {
                 with_state_mut(w, |s| s.saved_loc = Some(geom.loc));
             }
             self.space.unmap_elem(w);
+            // A fullscreen client that is merely hidden by a tag switch must not
+            // be sent a deactivating configure: browsers (Firefox/YouTube DOM
+            // fullscreen) treat the loss of xdg_toplevel::State::Activated as a
+            // window blur and drop out of fullscreen.  Leaving its state intact
+            // (still Fullscreen + Activated) keeps it fullscreen while off-screen;
+            // arrange() re-configures it correctly the moment its tag returns.
+            // This is why view_prev appeared to preserve fullscreen while
+            // view_next_occ_tag (which lands on another occupied tag) did not.
+            if with_state(w, |s| s.is_fullscreen).unwrap_or(false) {
+                continue;
+            }
             // Strip Activated (and tiled) states so clients that derive their
             // "focused" status from xdg_toplevel state (e.g. mpv) see the
             // focus change when their tag is hidden.
