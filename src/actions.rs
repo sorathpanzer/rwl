@@ -113,7 +113,11 @@ impl Rwl {
         #[cfg(feature = "overview")]
         if self.overview.is_some() {
             match action {
-                Action::OverviewNav(_) | Action::ToggleOverview | Action::ToggleOverviewAll => {}
+                // `Consumed` is a swallowed key *release* (e.g. releasing the mod
+                // key after a mod-tap gesture that toggles the overview). It must
+                // not force-close the overview, or the tap-to-close gesture would
+                // tear it down here and then re-open it in `update_mod_tap`.
+                Action::OverviewNav(_) | Action::ToggleOverview | Action::ToggleOverviewAll | Action::Consumed => {}
                 Action::KillClient => {
                     crate::features::overview::kill_selected(self);
                     return;
