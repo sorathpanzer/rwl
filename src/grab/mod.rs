@@ -156,7 +156,7 @@ pub fn handle_resize(state: &mut Rwl, new_pointer_loc: Point<f64, Logical>) {
         return;
     };
 
-    if crate::window::window_is_floating(&window) {
+    if window_is_floating(&window) {
         // Floating window: resize it directly by sending a new size configure.
         let dx = (new_pointer_loc.x - start.x) as i32;
         let dy = (new_pointer_loc.y - start.y) as i32;

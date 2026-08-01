@@ -222,9 +222,9 @@ fn run(startup_cmd: Option<String>) -> Result<()> {
         // Snapshot config and drop the read guard before spawning: `spawn` /
         // `configure_child` acquire their own config read lock, and nested
         // `RwLock` reads on one thread are not reentrant-safe.
-        let bar_cmd = crate::config::get().bar_cmd.clone();
+        let bar_cmd = config::get().bar_cmd.clone();
         #[cfg(feature = "startup-cmds")]
-        let startup_cmds = crate::config::get().startup_cmds.clone();
+        let startup_cmds = config::get().startup_cmds.clone();
 
         if state.ipc_out.is_none()
             && let Some((prog, args)) = bar_cmd.as_ref().and_then(|argv| argv.split_first())
@@ -265,7 +265,7 @@ fn run(startup_cmd: Option<String>) -> Result<()> {
                 let xdisplay = state.xdisplay.map(|n| format!(":{n}"));
                 #[cfg(not(feature = "xwayland"))]
                 let xdisplay: Option<String> = None;
-                features::bar::start(reader, crate::config::get().bar.clone(), state.socket_name.clone(), Arc::clone(&state.bar_has_notification), xdisplay);
+                features::bar::start(reader, config::get().bar.clone(), state.socket_name.clone(), Arc::clone(&state.bar_has_notification), xdisplay);
             }
             Err(e) => tracing::warn!("[bar] failed to create IPC pipe: {e}"),
         }
@@ -278,7 +278,7 @@ fn run(startup_cmd: Option<String>) -> Result<()> {
     // winit backend makes it worse: `output_added` ran before `ipc_out` was set,
     // so that monitor's initial status went to stdout instead of the bar.
     if state.ipc_out.is_some() {
-        crate::ipc::print_status(&mut state);
+        ipc::print_status(&mut state);
     }
 
     // Poll for title/app-id changes that arrive without a wl_surface.commit
@@ -306,7 +306,7 @@ fn run(startup_cmd: Option<String>) -> Result<()> {
                 // Apply any commands enqueued by Lua hooks during this iteration
                 // (on_focus / on_tag_switch / on_title_change callbacks).
                 #[cfg(feature = "hooks")]
-                crate::features::hooks::drain(state);
+                features::hooks::drain(state);
                 state.display_handle.flush_clients().ok();
             },
         )

@@ -9,7 +9,7 @@ use super::{
 
 /// Parse inline ^cmd(arg) commands, building color override list.
 /// Button x-positions are not tracked (requires font metrics; done in C).
-pub fn parse_into_customtext(text: &str, cfg: &Config) -> CustomText {
+pub(super) fn parse_into_customtext(text: &str, cfg: &Config) -> CustomText {
     if !cfg.status_commands {
         return CustomText { text: text.chars().take(TEXT_MAX - 1).collect(), colors: vec![] };
     }

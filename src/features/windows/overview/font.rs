@@ -80,7 +80,7 @@ fn pack(c: Color) -> u32 {
     clippy::cast_precision_loss,
     clippy::many_single_char_names,
 )]
-pub fn hint_badge(
+pub(super) fn hint_badge(
     renderer: &mut GlesRenderer,
     text: &str,
     loc: Point<i32, Physical>,

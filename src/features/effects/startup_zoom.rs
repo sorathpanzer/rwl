@@ -24,7 +24,7 @@ pub enum ZoomDirection {
 impl ZoomDirection {
     /// Parse a config string (`in` / `out`).
     #[must_use]
-    pub fn parse(s: &str) -> Option<Self> {
+    pub(crate) fn parse(s: &str) -> Option<Self> {
         match s {
             "in"  => Some(Self::In),
             "out" => Some(Self::Out),

@@ -21,7 +21,7 @@ use crate::state::{CursorMode, Rwl};
 
 impl Rwl {
     /// Handle a raw keyboard event from any backend.
-    pub fn process_key_event<B: InputBackend>(
+    pub(crate) fn process_key_event<B: InputBackend>(
         &mut self,
         event: &B::KeyboardKeyEvent,
     ) {
@@ -240,7 +240,7 @@ impl Rwl {
 
     /// Start a calloop timer that re-dispatches `action` after `repeat_delay`
     /// ms and then every `1000 / repeat_rate` ms until the key is released.
-    fn start_key_repeat(&mut self, action: crate::config::Action) {
+    fn start_key_repeat(&mut self, action: Action) {
         if let Some(token) = self.key_repeat_timer.take() {
             self.loop_handle.remove(token);
         }
@@ -273,7 +273,7 @@ impl Rwl {
     }
 }
 
-const fn action_should_repeat(action: &crate::config::Action) -> bool {
+const fn action_should_repeat(action: &Action) -> bool {
     use crate::config::Action;
     matches!(action, Action::Spawn(_) | Action::SetMfact(_) | Action::KillClient)
 }
@@ -284,7 +284,7 @@ const fn action_should_repeat(action: &crate::config::Action) -> bool {
 
 impl Rwl {
     /// Handle relative pointer motion.
-    pub fn process_pointer_motion<B: InputBackend>(
+    pub(crate) fn process_pointer_motion<B: InputBackend>(
         &mut self,
         event: &B::PointerMotionEvent,
     ) {
@@ -399,7 +399,7 @@ impl Rwl {
     }
 
     /// Handle absolute pointer motion (e.g. touchpad in absolute mode).
-    pub fn process_pointer_motion_abs<B: InputBackend>(
+    pub(crate) fn process_pointer_motion_abs<B: InputBackend>(
         &mut self,
         event: &B::PointerMotionAbsoluteEvent,
     ) {
@@ -478,7 +478,7 @@ impl Rwl {
     }
 
     /// Handle pointer button events.
-    pub fn process_pointer_button<B: InputBackend>(
+    pub(crate) fn process_pointer_button<B: InputBackend>(
         &mut self,
         event: &B::PointerButtonEvent,
     ) {
@@ -555,18 +555,18 @@ impl Rwl {
                         // Move / Resize need a window to act on; when the click
                         // landed on empty space there is nothing to grab, so
                         // consume the binding without starting a grab.
-                        crate::config::Action::Move => {
+                        Action::Move => {
                             if let Some(w) = window_under {
                                 crate::grab::start_move(self, w);
                             }
                             return;
                         }
-                        crate::config::Action::Resize => {
+                        Action::Resize => {
                             if let Some(w) = window_under {
                                 crate::grab::start_resize(
                                     self,
                                     w,
-                                    smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::ResizeEdge::BottomRight,
+                                    wayland_protocols::xdg::shell::server::xdg_toplevel::ResizeEdge::BottomRight,
                                 );
                             }
                             return;
@@ -601,7 +601,7 @@ impl Rwl {
 
     /// Handle pointer axis (scroll) events.
     #[allow(clippy::cast_possible_truncation)]
-    pub fn process_pointer_axis<B: InputBackend>(
+    pub(crate) fn process_pointer_axis<B: InputBackend>(
         &mut self,
         event: &B::PointerAxisEvent,
     ) {

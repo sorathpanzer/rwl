@@ -432,7 +432,7 @@ impl Rwl {
     /// # Errors
     /// Returns an error if the Wayland socket cannot be created.
     #[allow(clippy::too_many_lines)]
-    pub fn new(
+    pub(crate) fn new(
         display: Display<Self>,
         loop_handle: LoopHandle<'static, Self>,
         loop_signal: LoopSignal,
@@ -654,7 +654,7 @@ impl Rwl {
     /// terminals, Steam) can reach `XWayland`.  Called once from `main` after the
     /// backend and globals are up.
     #[cfg(feature = "xwayland")]
-    pub fn start_xwayland(&self) {
+    pub(crate) fn start_xwayland(&self) {
         let (xwayland, client) = match XWayland::spawn(
             &self.display_handle,
             None,
@@ -707,7 +707,7 @@ impl Rwl {
 
     /// Re-apply XKB config and repeat settings from the current config to the live keyboard.
     /// Called after a config reload so changes take effect without restarting.
-    pub fn reapply_keyboard_config(&mut self) {
+    pub(crate) fn reapply_keyboard_config(&mut self) {
         let Some(kb) = self.keyboard.clone() else { return };
         // Save physically-held modifiers before set_xkb_config() wipes XKB state,
         // so keybinds keep working when Mod is still held during a config reload.
@@ -747,7 +747,7 @@ impl Rwl {
     }
 
     /// Initialise keyboard and pointer devices on the seat.
-    pub fn init_input(&mut self) {
+    pub(crate) fn init_input(&mut self) {
         let p = xkb_params_from_cfg();
         let xkb_config = XkbConfig {
             rules:   &p.rules,
@@ -802,7 +802,7 @@ struct RuleAccum {
 impl Rwl {
     /// Return the currently focused window.
     #[must_use]
-    pub fn focused_window(&self) -> Option<&Window> {
+    pub(crate) fn focused_window(&self) -> Option<&Window> {
         let tags = self.sel_monitor().map_or(0, Monitor::tags);
         let sel = self.sel_mon;
         // Also check mon_idx so that when two monitors show the same tagset,
@@ -817,7 +817,7 @@ impl Rwl {
     /// non-fullscreen window on the selected monitor's current tagset).
     /// Returns `None` for other layouts or when there are no tiled windows.
     #[cfg(feature = "tile")]
-    pub fn tile_master_window(&self) -> Option<&Window> {
+    pub(crate) fn tile_master_window(&self) -> Option<&Window> {
         use crate::config::LayoutKind;
         let mon = self.sel_monitor()?;
         if mon.layout_kind() != LayoutKind::Tile {
@@ -845,34 +845,34 @@ impl Rwl {
     }
 
     #[must_use]
-    pub fn sel_monitor(&self) -> Option<&Monitor> {
+    pub(crate) fn sel_monitor(&self) -> Option<&Monitor> {
         self.monitors.get(self.sel_mon)
     }
 
-    pub fn sel_monitor_mut(&mut self) -> Option<&mut Monitor> {
+    pub(crate) fn sel_monitor_mut(&mut self) -> Option<&mut Monitor> {
         self.monitors.get_mut(self.sel_mon)
     }
 
     #[must_use]
-    pub fn monitor_for_output(&self, output: &Output) -> Option<usize> {
+    pub(crate) fn monitor_for_output(&self, output: &Output) -> Option<usize> {
         self.monitors.iter().position(|m| &m.output == output)
     }
 
     #[must_use]
     #[allow(clippy::cast_possible_truncation)]
-    pub fn monitor_at(&self, x: f64, y: f64) -> Option<usize> {
+    pub(crate) fn monitor_at(&self, x: f64, y: f64) -> Option<usize> {
         let pt = Point::<i32, Logical>::from((x as i32, y as i32));
         self.monitors.iter().position(|m| m.m.contains(pt))
     }
 
     #[must_use]
-    pub fn window_for_surface(&self, surface: &WlSurface) -> Option<&Window> {
+    pub(crate) fn window_for_surface(&self, surface: &WlSurface) -> Option<&Window> {
         self.window_map.get(surface)
     }
 
     /// Recompute and cache the union bounding box of all monitor geometries.
     /// Must be called after any monitor is added, removed, or repositioned.
-    pub fn update_monitor_bounds(&mut self) {
+    pub(crate) fn update_monitor_bounds(&mut self) {
         self.monitor_bounds = self.monitors.iter()
             .map(|m| (m.m.loc.x, m.m.loc.y, m.m.loc.x + m.m.size.w, m.m.loc.y + m.m.size.h))
             .reduce(|(ax1, ay1, ax2, ay2), (x1, y1, x2, y2)| {
@@ -886,7 +886,7 @@ impl Rwl {
     /// Used to re-establish pointer focus after subsurfaces are
     /// destroyed/recreated (e.g. `QtWebEngine` during page navigation).
     #[must_use]
-    pub fn surface_under(&self, loc: Point<f64, Logical>) -> Option<(WlSurface, Point<f64, Logical>)> {
+    pub(crate) fn surface_under(&self, loc: Point<f64, Logical>) -> Option<(WlSurface, Point<f64, Logical>)> {
         self.space
             .element_under(loc)
             .and_then(|(window, render_loc)| {
@@ -953,7 +953,7 @@ impl Rwl {
     /// Use this for all pointer focus decisions so that bars, overlays, and
     /// wallpapers receive input correctly.
     #[must_use]
-    pub fn pointer_focus_under(
+    pub(crate) fn pointer_focus_under(
         &self,
         loc: Point<f64, Logical>,
     ) -> Option<(WlSurface, Point<f64, Logical>)> {
@@ -973,7 +973,7 @@ impl Rwl {
                             smithay::utils::Size::from((w, h))
                         })
                         .unwrap_or_default();
-                    smithay::utils::Rectangle::new(out_loc, out_size)
+                    Rectangle::new(out_loc, out_size)
                         .contains(pt)
                         .then(|| (surf.wl_surface().clone(), out_loc.to_f64()))
                 });
@@ -999,7 +999,7 @@ impl Rwl {
     /// after a keyboard tag switch is delivered to the now-hidden window (e.g. a
     /// `YouTube` video on another tag toggles play/pause). Call after any operation
     /// that maps/unmaps windows without a pointer event.
-    pub fn refresh_pointer_focus(&mut self) {
+    pub(crate) fn refresh_pointer_focus(&mut self) {
         // A grab (move/resize) owns pointer routing; don't disturb it.
         if self.locked { return; }
         let Some(ptr) = self.pointer.clone() else { return };
@@ -1015,7 +1015,7 @@ impl Rwl {
 
     #[must_use]
     #[allow(clippy::cast_sign_loss)]
-    pub fn target_monitor_for_window(&self, rule_monitor: i32) -> usize {
+    pub(crate) fn target_monitor_for_window(&self, rule_monitor: i32) -> usize {
         if rule_monitor >= 0 {
             return (rule_monitor as usize).min(self.monitors.len().saturating_sub(1));
         }
@@ -1067,8 +1067,8 @@ impl Rwl {
                 let (cmin, cmax) = { let s = guard.current(); (s.min_size, s.max_size) };
                 let (pmin, pmax) = { let s = guard.pending(); (s.min_size, s.max_size) };
                 drop(guard);
-                let fixed = |min: smithay::utils::Size<i32, smithay::utils::Logical>,
-                              max: smithay::utils::Size<i32, smithay::utils::Logical>| {
+                let fixed = |min: smithay::utils::Size<i32, Logical>,
+                              max: smithay::utils::Size<i32, Logical>| {
                     min.w != 0 && min.h != 0 && (min.w == max.w || min.h == max.h)
                 };
                 fixed(cmin, cmax) || fixed(pmin, pmax)
@@ -1078,17 +1078,17 @@ impl Rwl {
 
     /// Apply window rules to a newly mapped window.
     #[allow(clippy::too_many_lines)]
-    pub fn apply_rules(&mut self, window: &Window) {
+    pub(crate) fn apply_rules(&mut self, window: &Window) {
         // Mirror C dwl mapnotify: if the toplevel declares a parent (dialog /
         // transient window) skip config rules entirely — always floating,
         // always centred on the parent's monitor, always on the parent's tags.
-        let parent_wl = window.toplevel().and_then(smithay::wayland::shell::xdg::ToplevelSurface::parent);
+        let parent_wl = window.toplevel().and_then(ToplevelSurface::parent);
         if let Some(ref parent_surf) = parent_wl {
             let parent_data = self
                 .window_map.get(parent_surf)
                 .and_then(|pw| with_state(pw, |s| (s.mon_idx, s.tags)));
             let (parent_mon, parent_tags) = parent_data.unwrap_or_else(|| {
-                let tags = self.monitors.get(self.sel_mon).map_or(1, super::monitor::Monitor::tags);
+                let tags = self.monitors.get(self.sel_mon).map_or(1, Monitor::tags);
                 (self.sel_mon, tags)
             });
             with_state_mut(window, |s| {
@@ -1280,7 +1280,7 @@ impl Rwl {
     }
 
     /// Bring `window` to the top of the focus stack and give it keyboard focus.
-    pub fn focus_window(&mut self, window: Option<Window>) {
+    pub(crate) fn focus_window(&mut self, window: Option<Window>) {
         let surface = window
             .as_ref()
             .and_then(|w| w.wl_surface().map(std::borrow::Cow::into_owned));
@@ -1354,7 +1354,7 @@ impl Rwl {
     }
 
     /// Update border colours on all mapped windows.
-    pub fn update_borders(&self) {
+    pub(crate) fn update_borders(&self) {
         let focused = self.focused_window().cloned();
         let cfg = crate::config::get();
         let focus_color = cfg.focus_color;
@@ -1371,7 +1371,7 @@ impl Rwl {
 
     /// Arrange all windows on `mon_idx` according to the active layout.
     #[allow(clippy::too_many_lines)]
-    pub fn arrange(&mut self, mon_idx: usize) {
+    pub(crate) fn arrange(&mut self, mon_idx: usize) {
         use crate::features::layout;
 
         let (tags, default_loc, fs_geom) = {
@@ -1396,7 +1396,7 @@ impl Rwl {
         // Union of every monitor's visible tagset.  A window is only unmapped
         // from the space when no monitor shows its tag; otherwise it stays
         // mapped (potentially at another monitor's position).
-        let all_visible: u32 = self.monitors.iter().map(super::monitor::Monitor::tags).fold(0, |a, b| a | b);
+        let all_visible: u32 = self.monitors.iter().map(Monitor::tags).fold(0, |a, b| a | b);
 
         // Single pass: partition all windows into their display categories for
         // this monitor.  Avoids re-scanning self.windows four separate times.
@@ -1511,7 +1511,7 @@ impl Rwl {
         #[cfg(any(feature = "monocle", feature = "scroll"))]
         {
             use crate::config::LayoutKind;
-            let layout_kind = self.monitors.get(mon_idx).map(super::monitor::Monitor::layout_kind);
+            let layout_kind = self.monitors.get(mon_idx).map(Monitor::layout_kind);
             #[cfg(feature = "monocle")]
             let is_scrollable = matches!(layout_kind, Some(LayoutKind::Monocle));
             #[cfg(not(feature = "monocle"))]
@@ -1791,7 +1791,7 @@ impl Rwl {
     /// wallpaper flash in the master/slave area.
     ///
     /// Only new (`buffer_mapped=false`) windows trigger the long gate.
-    pub fn any_tiled_pending_resize(&self, output: &smithay::output::Output) -> bool {
+    pub(crate) fn any_tiled_pending_resize(&self, output: &Output) -> bool {
         let tags = self
             .monitors
             .iter()
@@ -1813,7 +1813,7 @@ impl Rwl {
     /// True when any already-buffered tiled window hasn't yet committed a
     /// buffer at its new configured size.  Covers the close-window case where
     /// all neighbours need to grow/shrink — they have content but the wrong size.
-    pub fn any_existing_tiled_pending_resize(&self, output: &smithay::output::Output) -> bool {
+    pub(crate) fn any_existing_tiled_pending_resize(&self, output: &Output) -> bool {
         let tags = self
             .monitors
             .iter()
@@ -1832,7 +1832,7 @@ impl Rwl {
         })
     }
 
-    pub fn arrange_all(&mut self) {
+    pub(crate) fn arrange_all(&mut self) {
         self.update_work_areas();
         #[cfg(feature = "tag-transition")]
         let pending_transition = self.pending_tag_transition.take();
@@ -1855,7 +1855,7 @@ impl Rwl {
     /// by `advance_tag_transitions`).  Called each render frame after advancing
     /// transitions.  No-op when the `tag-transition` feature is disabled.
     #[cfg(feature = "tag-transition")]
-    pub fn finalize_slide_outs(&mut self) {
+    pub(crate) fn finalize_slide_outs(&mut self) {
         // Union of every monitor's visible tagset.  A slide-out window must, by
         // definition, be leaving the visible tags — so if a window flagged
         // slide_out is still on a visible tag, the flag is stale/wrong (e.g. a
@@ -1865,10 +1865,10 @@ impl Rwl {
         let all_visible: u32 = self
             .monitors
             .iter()
-            .map(super::monitor::Monitor::tags)
+            .map(Monitor::tags)
             .fold(0, |a, b| a | b);
 
-        let to_finalize: Vec<smithay::desktop::Window> = self.windows.iter()
+        let to_finalize: Vec<Window> = self.windows.iter()
             .filter(|w| with_state(w, |s| s.slide_out && s.slide_start.is_none()).unwrap_or(false))
             .cloned()
             .collect();
@@ -1915,7 +1915,7 @@ impl Rwl {
     /// Overlay/Top layer that has a committed buffer.  If none is found,
     /// restore keyboard focus to the top window on the focus stack instead.
     /// No-ops when the session is locked — the lock surface owns keyboard focus.
-    pub fn update_layer_focus(&mut self) {
+    pub(crate) fn update_layer_focus(&mut self) {
         if self.locked {
             return;
         }
@@ -1962,7 +1962,7 @@ impl Rwl {
     ///
     /// Must be called before any layout pass so that bars/panels that request
     /// an exclusive zone actually shrink the tiling area.
-    pub fn update_work_areas(&mut self) {
+    pub(crate) fn update_work_areas(&mut self) {
         for mon in &mut self.monitors {
             // The inner block ensures the LayerMap guard is dropped (releasing
             // the borrow on mon.output) before we assign to mon.w.
@@ -1984,7 +1984,7 @@ impl Rwl {
             // non_exclusive_zone() is output-local (origin = output top-left).
             // Translate to global logical space by adding the output's position.
             let new_w = if zone.size.w > 0 && zone.size.h > 0 {
-                smithay::utils::Rectangle::new(
+                Rectangle::new(
                     (mon.m.loc.x + zone.loc.x, mon.m.loc.y + zone.loc.y).into(),
                     zone.size,
                 )
@@ -2013,11 +2013,11 @@ impl Rwl {
     /// Report user activity to the idle-notify subsystem.
     ///
     /// Called from every input path so idle timeouts reset on any user action.
-    pub fn notify_idle_activity(&mut self) {
+    pub(crate) fn notify_idle_activity(&mut self) {
         self.idle_notifier.notify_activity(&self.seat);
     }
 
-    pub fn handle_cursor_activity(&mut self) {
+    pub(crate) fn handle_cursor_activity(&mut self) {
         self.notify_idle_activity();
         if self.cursor_hidden {
             self.cursor_hidden = false;
@@ -2048,7 +2048,7 @@ impl Rwl {
     }
 
     #[must_use]
-    pub const fn dir_to_monitor(&self, from: usize, dir: i32) -> Option<usize> {
+    pub(crate) const fn dir_to_monitor(&self, from: usize, dir: i32) -> Option<usize> {
         if self.monitors.len() < 2 {
             return None;
         }
@@ -2061,7 +2061,7 @@ impl Rwl {
     }
 
     #[must_use]
-    pub fn count_tiled(&self, tags: u32) -> usize {
+    pub(crate) fn count_tiled(&self, tags: u32) -> usize {
         self.windows
             .iter()
             .filter(|w| {
@@ -2074,7 +2074,7 @@ impl Rwl {
     }
 
     #[must_use]
-    pub fn next_occ_tag(&self, dir: i32) -> Option<u32> {
+    pub(crate) fn next_occ_tag(&self, dir: i32) -> Option<u32> {
         let mon = self.sel_monitor()?;
         let occupied: u32 = self.windows.iter().map(window_tags).fold(0, |a, b| a | b);
         mon.next_occupied_tag(occupied, dir)
@@ -2105,7 +2105,7 @@ impl Rwl {
     /// `set_title` / `set_app_id` without a subsequent `wl_surface.commit`
     /// (Firefox's tab-switch pattern).  Called from the post-dispatch hook in
     /// main.rs so it runs on every batch of Wayland events at zero idle cost.
-    pub fn check_toplevel_titles(&mut self) {
+    pub(crate) fn check_toplevel_titles(&mut self) {
         struct PendingUpdate {
             window:        Window,
             new_title:     Option<String>,

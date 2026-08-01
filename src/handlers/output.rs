@@ -16,7 +16,7 @@ impl OutputHandler for Rwl {}
 impl Rwl {
     /// Register a new output produced by the backend.
     #[allow(clippy::cast_possible_truncation)]
-    pub fn output_added(&mut self, output: &Output) {
+    pub(crate) fn output_added(&mut self, output: &Output) {
         // Apply scale and transform from monitor rules
         let rule = crate::monitor::matching_rule_for_output(output);
         output.change_current_state(
@@ -85,7 +85,7 @@ impl Rwl {
         // to the launch tag instead of leaving it unset. No-ops after the first.
         #[cfg(feature = "hooks")]
         {
-            let tags = self.sel_monitor().map_or(0, crate::monitor::Monitor::tags);
+            let tags = self.sel_monitor().map_or(0, Monitor::tags);
             crate::features::hooks::startup(self, tags);
             // Fired after startup on the first output, and on every hotplug after.
             crate::features::hooks::monitor_add(self, output.name().as_str());
@@ -98,7 +98,7 @@ impl Rwl {
     /// Re-apply monitor rules (scale, transform, position) to all existing outputs.
     /// Called after a config reload so changes take effect without reconnecting.
     #[allow(clippy::cast_possible_truncation)]
-    pub fn reapply_monitor_rules(&mut self) {
+    pub(crate) fn reapply_monitor_rules(&mut self) {
         for i in 0..self.monitors.len() {
             let output = self.monitors[i].output.clone();
             let rule = crate::monitor::matching_rule_for_output(&output);
@@ -137,7 +137,7 @@ impl Rwl {
     }
 
     /// Remove an output (monitor disconnected).
-    pub fn output_removed(&mut self, output: &Output) {
+    pub(crate) fn output_removed(&mut self, output: &Output) {
         if let Some(idx) = self.monitor_for_output(output) {
             // Pick a migration target that is not the monitor being removed.
             // Prefer sel_mon; if sel_mon is the removed monitor, take any other.

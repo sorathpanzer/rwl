@@ -13,7 +13,7 @@ use super::text::CustomText;
 // ── SHM allocation ────────────────────────────────────────────────────────────
 
 /// Create an anonymous in-memory file of `size` bytes.
-pub fn allocate_shm_file(size: u64) -> Result<OwnedFd, Errno> {
+pub(super) fn allocate_shm_file(size: u64) -> Result<OwnedFd, Errno> {
     let fd = create_anon_file()?;
     loop {
         match ftruncate(&fd, size) {
@@ -44,7 +44,7 @@ fn create_anon_file() -> Result<OwnedFd, Errno> {
 
 // ── Parameters for a single bar draw ─────────────────────────────────────────
 
-pub struct BarDrawParams<'a> {
+pub(super) struct BarDrawParams<'a> {
     pub width:        u32,
     pub height:       u32,
     pub stride:       u32,
@@ -64,7 +64,7 @@ pub struct BarDrawParams<'a> {
 
 // ── Main render call ──────────────────────────────────────────────────────────
 
-pub fn render_frame(pixels: &mut [u32], p: &BarDrawParams<'_>) {
+pub(super) fn render_frame(pixels: &mut [u32], p: &BarDrawParams<'_>) {
     let cfg = p.config;
     azoth_render::render_bar(pixels, &BarRenderParams {
         width:        p.width,

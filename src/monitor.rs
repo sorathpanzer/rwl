@@ -81,7 +81,7 @@ pub struct MonitorMemory {
 impl Monitor {
     /// Create a new [`Monitor`] applying the first matching [`MonitorRule`].
     #[must_use]
-    pub fn new(output: Output) -> Self {
+    pub(crate) fn new(output: Output) -> Self {
         let name = output.name();
         let rule = matching_rule(name.as_str());
 
@@ -111,7 +111,7 @@ impl Monitor {
     /// Capture the layout state worth restoring when this output is unplugged and
     /// later replugged (see [`MonitorMemory`]).
     #[must_use]
-    pub fn snapshot(&self) -> MonitorMemory {
+    pub(crate) fn snapshot(&self) -> MonitorMemory {
         MonitorMemory {
             mfact: self.mfact,
             nmaster: self.nmaster,
@@ -126,7 +126,7 @@ impl Monitor {
     /// clamped to the currently configured `layouts` so a config change between
     /// unplug and replug can never select an out-of-range layout, and the per-tag
     /// override vector is re-sized to the current tag count.
-    pub fn restore(&mut self, mem: MonitorMemory) {
+    pub(crate) fn restore(&mut self, mem: MonitorMemory) {
         let n_layouts = crate::config::get().layouts.len();
         let clamp = |i: usize| i.min(n_layouts.saturating_sub(1));
         self.mfact = mem.mfact;
@@ -147,14 +147,14 @@ impl Monitor {
     /// Active tag bitmask.
     #[inline]
     #[must_use]
-    pub const fn tags(&self) -> u32 {
+    pub(crate) const fn tags(&self) -> u32 {
         self.tagset[self.sel_tags]
     }
 
     /// Mutable reference to the active tag bitmask.
     #[inline]
     #[allow(dead_code)]
-    pub const fn tags_mut(&mut self) -> &mut u32 {
+    pub(crate) const fn tags_mut(&mut self) -> &mut u32 {
         &mut self.tagset[self.sel_tags]
     }
 
@@ -168,13 +168,13 @@ impl Monitor {
     #[cfg(any(feature = "hooks", feature = "ipc"))]
     #[inline]
     #[must_use]
-    pub const fn layout_idx(&self) -> usize {
+    pub(crate) const fn layout_idx(&self) -> usize {
         self.lt[self.sel_lt]
     }
 
     #[inline]
     #[must_use]
-    pub fn layout_kind(&self) -> LayoutKind {
+    pub(crate) fn layout_kind(&self) -> LayoutKind {
         let cfg = crate::config::get();
         cfg.layouts
             .get(self.lt[self.sel_lt])
@@ -184,7 +184,7 @@ impl Monitor {
     /// Layout symbol string (at most 15 chars to fit dwl's `ltsymbol[16]`).
     #[inline]
     #[must_use]
-    pub fn layout_symbol(&self) -> String {
+    pub(crate) fn layout_symbol(&self) -> String {
         let cfg = crate::config::get();
         cfg.layouts
             .get(self.lt[self.sel_lt])
@@ -193,7 +193,7 @@ impl Monitor {
 
     /// Switch to a new layout by index.  If `idx == usize::MAX` toggle between
     /// the two most-recent layouts.
-    pub fn set_layout(&mut self, idx: usize) {
+    pub(crate) fn set_layout(&mut self, idx: usize) {
         if idx == usize::MAX {
             self.sel_lt ^= 1;
         } else if idx < crate::config::get().layouts.len() && self.lt[self.sel_lt] != idx {
@@ -216,7 +216,7 @@ impl Monitor {
     }
 
     /// View a new tag bitmask, saving the previous one.
-    pub fn view(&mut self, tagmask: u32) {
+    pub(crate) fn view(&mut self, tagmask: u32) {
         let new_tags = tagmask & crate::config::tag_mask();
         if new_tags == 0 || new_tags == self.tagset[self.sel_tags] {
             return;
@@ -228,7 +228,7 @@ impl Monitor {
     }
 
     /// Toggle visibility of `tagmask` in the current view.
-    pub fn toggle_view(&mut self, tagmask: u32) {
+    pub(crate) fn toggle_view(&mut self, tagmask: u32) {
         let new = (self.tagset[self.sel_tags] ^ tagmask) & crate::config::tag_mask();
         if new != 0 {
             self.sel_tags ^= 1;
@@ -237,7 +237,7 @@ impl Monitor {
     }
 
     /// Return to the previous tag set (swap `sel_tags`).
-    pub fn view_prev(&mut self) {
+    pub(crate) fn view_prev(&mut self) {
         self.sel_tags ^= 1;
         #[cfg(feature = "pertag-layouts")]
         crate::features::pertag_layouts::apply(self, self.tagset[self.sel_tags]);
@@ -249,7 +249,7 @@ impl Monitor {
     /// there are no windows at all.
     #[must_use]
     #[allow(clippy::cast_possible_wrap)]
-    pub fn next_occupied_tag(&self, occupied: u32, dir: i32) -> Option<u32> {
+    pub(crate) fn next_occupied_tag(&self, occupied: u32, dir: i32) -> Option<u32> {
         let current = self.tagset[self.sel_tags];
         if current == 0 {
             return None;

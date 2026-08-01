@@ -569,7 +569,7 @@ fn lua_monitor_rules(t: &mlua::Table, default: Vec<MonitorRule>) -> Vec<MonitorR
 pub(super) fn lua_str_array(tbl: &mlua::Table, key: &str) -> Vec<String> {
     let Ok(arr) = tbl.get::<mlua::Table>(key) else { return Vec::new() };
     arr.sequence_values::<String>()
-        .filter_map(std::result::Result::ok)
+        .filter_map(Result::ok)
         .collect()
 }
 

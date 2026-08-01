@@ -6,16 +6,16 @@ use super::config::Block;
 
 const CMDLENGTH: usize = 50;
 
-pub type StatusCache = Vec<String>;
+pub(super) type StatusCache = Vec<String>;
 
 #[inline]
-pub fn fast_hash(s: &str) -> u64 {
+pub(super) fn fast_hash(s: &str) -> u64 {
     let mut h = DefaultHasher::new();
     s.hash(&mut h);
     h.finish()
 }
 
-pub fn getcmd(block: &Block) -> String {
+pub(super) fn getcmd(block: &Block) -> String {
     let suffix = Command::new("sh")
         .arg("-c")
         .arg(&block.command)
@@ -38,11 +38,11 @@ pub fn getcmd(block: &Block) -> String {
     format!("{}{}", block.icon, suffix)
 }
 
-pub fn initial_cache(blocks: &[Block]) -> StatusCache {
+pub(super) fn initial_cache(blocks: &[Block]) -> StatusCache {
     blocks.iter().map(getcmd).collect()
 }
 
-pub fn update_cache(time: u32, signal_mask: u32, prev_cache: StatusCache, blocks: &[Block]) -> StatusCache {
+pub(super) fn update_cache(time: u32, signal_mask: u32, prev_cache: StatusCache, blocks: &[Block]) -> StatusCache {
     blocks
         .iter()
         .zip(prev_cache)
@@ -59,7 +59,7 @@ pub fn update_cache(time: u32, signal_mask: u32, prev_cache: StatusCache, blocks
 /// delimiter).  The bounds let the event loop map a pointer x-position back to
 /// the block under it.
 #[allow(clippy::cast_possible_truncation)]
-pub fn build_status_bounds(cache: &[String], delim: &str) -> (String, Vec<u32>) {
+pub(super) fn build_status_bounds(cache: &[String], delim: &str) -> (String, Vec<u32>) {
     let mut status = String::new();
     let mut bounds = Vec::with_capacity(cache.len());
     for (i, part) in cache.iter().enumerate() {

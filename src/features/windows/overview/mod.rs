@@ -135,7 +135,7 @@ pub struct OverviewState {
 
 impl OverviewState {
     /// Whether this overview session is being displayed on `output`.
-    pub fn on_output(&self, output: &Output) -> bool {
+    pub(crate) fn on_output(&self, output: &Output) -> bool {
         &self.output == output
     }
 }

@@ -133,7 +133,7 @@ pub struct UdevData {
     /// commits) run while we still hold DRM master, before the session closes.
     pub devices: HashMap<libc::dev_t, DeviceData>,
     /// Devices discovered via udev but not yet opened (session was inactive).
-    pub pending_devices: Vec<(libc::dev_t, std::path::PathBuf)>,
+    pub pending_devices: Vec<(libc::dev_t, PathBuf)>,
     pub session: smithay::backend::session::libseat::LibSeatSession,
     /// Libinput context — must be explicitly suspended/resumed alongside the
     /// session so its input-device fds are closed/re-opened by libseat on
@@ -185,7 +185,7 @@ pub fn init(
     // Snapshot existing DRM devices now — once inserted as a source the backend
     // only delivers *changes*, not the initial list.  Store them as pending so
     // they are opened after ActivateSession, not before the event loop starts.
-    let pending_devices: Vec<(libc::dev_t, std::path::PathBuf)> = udev_backend
+    let pending_devices: Vec<(libc::dev_t, PathBuf)> = udev_backend
         .device_list()
         .map(|(id, path)| (id, path.to_owned()))
         .collect();
@@ -204,7 +204,7 @@ pub fn init(
     loop_handle
         .insert_source(libinput_backend, |mut event, (), state| {
             // Configure newly added libinput devices before forwarding the event.
-            if let smithay::backend::input::InputEvent::DeviceAdded { ref mut device } = event {
+            if let InputEvent::DeviceAdded { ref mut device } = event {
                 state.configure_libinput_device(device);
             }
             state.process_input_event(event);
@@ -285,7 +285,7 @@ pub fn init(
 // ---------------------------------------------------------------------------
 
 impl Rwl {
-    pub fn process_input_event<B: InputBackend>(&mut self, event: InputEvent<B>) {
+    pub(crate) fn process_input_event<B: InputBackend>(&mut self, event: InputEvent<B>) {
         use smithay::backend::input::InputEvent as E;
         match event {
             E::Keyboard { event } => self.process_key_event::<B>(&event),
@@ -299,13 +299,13 @@ impl Rwl {
     }
 
     #[allow(clippy::unused_self)]
-    pub fn configure_input_device<D: smithay::backend::input::Device>(&self, device: &D) {
+    pub(crate) fn configure_input_device<D: smithay::backend::input::Device>(&self, device: &D) {
         tracing::debug!("New input device: {}", device.name());
     }
 
     /// Apply libinput-specific configuration to a newly discovered device.
     /// Called from the libinput source handler on `DeviceAdded` events.
-    pub fn configure_libinput_device(&mut self, device: &mut smithay::reexports::input::Device) {
+    pub(crate) fn configure_libinput_device(&mut self, device: &mut smithay::reexports::input::Device) {
         tracing::debug!("Configuring libinput device: {}", device.name());
 
         apply_libinput_config(device, &crate::config::get());
@@ -342,7 +342,7 @@ impl Rwl {
 impl Rwl {
     /// Queue a device to be opened (either immediately if session is active, or
     /// deferred until `SessionEvent::ActivateSession` fires).
-    pub fn enqueue_device(&mut self, device_id: libc::dev_t, path: std::path::PathBuf) {
+    pub(crate) fn enqueue_device(&mut self, device_id: libc::dev_t, path: PathBuf) {
         if let Err(e) = self.backend_device_added(device_id, &path) {
             tracing::warn!(
                 "Device {:?} not ready yet (session inactive?): {e} — deferring",
@@ -361,7 +361,7 @@ impl Rwl {
     /// so it forces a full modeset on the next render.  Without `reset_state`, the compositor
     /// thinks its last frame is still valid, `render_frame` returns `is_empty=true`, and the
     /// screen stays black indefinitely after resume.
-    pub fn open_pending_devices(&mut self) {
+    pub(crate) fn open_pending_devices(&mut self) {
         let device_ids: Vec<libc::dev_t> = self
             .backend_data_opt()
             .map(|b| b.devices.keys().copied().collect())
@@ -445,13 +445,13 @@ impl Rwl {
     }
 
     /// Pause all open DRM devices when the session is deactivated (VT switch away).
-    pub fn pause_drm_devices(&mut self) {
+    pub(crate) fn pause_drm_devices(&mut self) {
         let Some(backend) = self.backend_data_opt() else { return };
         backend.devices.values_mut().for_each(|dev| dev.drm.pause());
     }
 
     #[allow(clippy::too_many_lines, clippy::redundant_closure_for_method_calls, unsafe_code)]
-    pub fn backend_device_added(
+    pub(crate) fn backend_device_added(
         &mut self,
         device_id: libc::dev_t,
         path: &std::path::Path,
@@ -648,12 +648,12 @@ impl Rwl {
         Ok(())
     }
 
-    pub fn backend_device_changed(&mut self, device_id: libc::dev_t) {
+    pub(crate) fn backend_device_changed(&mut self, device_id: libc::dev_t) {
         tracing::info!("DRM device changed, rescanning connectors");
         let _ = self.scan_connectors(device_id);
     }
 
-    pub fn backend_device_removed(&mut self, device_id: libc::dev_t) {
+    pub(crate) fn backend_device_removed(&mut self, device_id: libc::dev_t) {
         tracing::info!("DRM device removed");
         if let Some(backend) = self.backend_data_opt()
             && let Some(dev) = backend.devices.remove(&device_id)
@@ -693,7 +693,7 @@ impl Rwl {
                 continue;
             };
             if connector.state()
-                != smithay::reexports::drm::control::connector::State::Connected
+                != connector::State::Connected
             {
                 continue;
             }
@@ -1645,7 +1645,7 @@ impl Rwl {
     /// Schedule a re-render for all active outputs.
     /// Call this whenever surface content changes (e.g. from the commit handler) so
     /// the render loop restarts even when there was no pending `VBlank`.
-    pub fn schedule_render(&self) {
+    pub(crate) fn schedule_render(&self) {
         // Winit backend: request a redraw via the host compositor.
         // request_redraw() is coalesced by winit (many calls → one Redraw event)
         // and is rate-limited by the host compositor's vsync frame callbacks.
@@ -1703,7 +1703,7 @@ impl Rwl {
 
     /// Called by `SeatHandler::led_state_changed` to push the new LED state
     /// (`CapsLock`, `NumLock`, `ScrollLock`) to every connected physical keyboard.
-    pub fn update_keyboard_leds(&mut self, led_state: smithay::input::keyboard::LedState) {
+    pub(crate) fn update_keyboard_leds(&mut self, led_state: smithay::input::keyboard::LedState) {
         let leds = libinput_leds_from_smithay(led_state);
         if let Some(backend) = self.backend_data_opt() {
             backend.kbd_devices.iter_mut().for_each(|kbd| kbd.led_update(leds));
@@ -1756,7 +1756,7 @@ fn apply_libinput_config(
 impl Rwl {
     /// Re-apply libinput config to all currently connected input devices.
     /// Called after a config reload so settings take effect without hotplugging.
-    pub fn reapply_input_device_config(&mut self) {
+    pub(crate) fn reapply_input_device_config(&mut self) {
         let Some(backend) = self.backend_data_opt() else { return };
         let mut devices = backend.input_devices.clone();
         let cfg = crate::config::get();
@@ -1769,7 +1769,7 @@ impl Rwl {
     /// Re-apply each output's VRR policy after a config reload, so changing a
     /// monitor rule's `vrr` field takes effect without reconnecting the display.
     /// `OnDemand` outputs are left to the render loop; only `On`/`Off` are forced.
-    pub fn reapply_vrr(&mut self) {
+    pub(crate) fn reapply_vrr(&mut self) {
         let Some(backend) = self.backend_data_opt() else { return };
         for dev in backend.devices.values_mut() {
             for surface in dev.surfaces.values_mut() {

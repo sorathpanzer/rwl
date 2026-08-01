@@ -27,7 +27,7 @@ impl Rwl {
                 set_window_tags(&w, 0);
                 self.focus_stack.retain(|fw| fw != &w);
                 let top = self.focus_stack.iter()
-                    .find(|fw| window_visible_on(fw, tags) && crate::window::with_state(fw, |s| s.mon_idx == sel).unwrap_or(false))
+                    .find(|fw| window_visible_on(fw, tags) && with_state(fw, |s| s.mon_idx == sel).unwrap_or(false))
                     .cloned();
                 self.focus_window(top);
             } else {
@@ -52,7 +52,7 @@ impl Rwl {
                 set_window_tags(&w, 0);
                 self.focus_stack.retain(|fw| fw != &w);
                 let top = self.focus_stack.iter()
-                    .find(|fw| window_visible_on(fw, tags) && crate::window::with_state(fw, |s| s.mon_idx == sel).unwrap_or(false))
+                    .find(|fw| window_visible_on(fw, tags) && with_state(fw, |s| s.mon_idx == sel).unwrap_or(false))
                     .cloned();
                 self.focus_window(top);
             } else {
@@ -92,7 +92,7 @@ impl Rwl {
                 set_window_tags(&w, 0);
                 self.focus_stack.retain(|fw| fw != &w);
                 let top = self.focus_stack.iter()
-                    .find(|fw| window_visible_on(fw, tags) && crate::window::with_state(fw, |s| s.mon_idx == sel).unwrap_or(false))
+                    .find(|fw| window_visible_on(fw, tags) && with_state(fw, |s| s.mon_idx == sel).unwrap_or(false))
                     .cloned();
                 self.focus_window(top);
             } else {

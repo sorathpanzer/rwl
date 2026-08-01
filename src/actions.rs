@@ -47,7 +47,7 @@ pub fn spawn_reparented(command: &mut std::process::Command) -> std::io::Result<
 }
 
 impl Rwl {
-    pub fn zoom(&mut self) {
+    pub(crate) fn zoom(&mut self) {
         let Some(focused) = self.focused_window().cloned() else {
             return;
         };
@@ -105,7 +105,7 @@ impl Rwl {
     // -----------------------------------------------------------------------
 
     #[allow(clippy::too_many_lines)]
-    pub fn dispatch(&mut self, action: &Action) {
+    pub(crate) fn dispatch(&mut self, action: &Action) {
         // A keybind pressed while the overview is open exits it and runs the
         // action against the real layout. Exceptions kept inside the overview:
         // its own nav/toggles, and KillClient (closes the selected thumbnail's
@@ -129,12 +129,12 @@ impl Rwl {
         // Snapshot the selected monitor's tags so any tag-changing action fires
         // on_tag_switch generically (no per-action wiring).
         #[cfg(any(feature = "hooks", feature = "ipc"))]
-        let tag_before = (self.sel_mon, self.sel_monitor().map(crate::monitor::Monitor::tags));
+        let tag_before = (self.sel_mon, self.sel_monitor().map(Monitor::tags));
         // Likewise snapshot the active layout index so any layout-changing action
         // (or a per-tag layout that changes with the tag) fires on_layout_change
         // and the `layout` IPC event.
         #[cfg(any(feature = "hooks", feature = "ipc"))]
-        let layout_before = (self.sel_mon, self.sel_monitor().map(crate::monitor::Monitor::layout_idx));
+        let layout_before = (self.sel_mon, self.sel_monitor().map(Monitor::layout_idx));
 
         match action {
             Action::Spawn(cmd) => self.spawn(cmd),
@@ -396,7 +396,7 @@ impl Rwl {
             let (mon_before, old_tags) = tag_before;
             if mon_before == self.sel_mon
                 && let (Some(old), Some(new)) =
-                    (old_tags, self.sel_monitor().map(crate::monitor::Monitor::tags))
+                    (old_tags, self.sel_monitor().map(Monitor::tags))
                 && old != new
             {
                 crate::features::hooks::tag_switch(self, old, new);
@@ -409,7 +409,7 @@ impl Rwl {
             let (mon_before, old_tags) = tag_before;
             if mon_before == self.sel_mon
                 && let (Some(old), Some(new)) =
-                    (old_tags, self.sel_monitor().map(crate::monitor::Monitor::tags))
+                    (old_tags, self.sel_monitor().map(Monitor::tags))
                 && old != new
             {
                 crate::features::ipc::event::tag(self, mon_before);
@@ -423,7 +423,7 @@ impl Rwl {
             let (mon_before, old_lt) = layout_before;
             if mon_before == self.sel_mon
                 && let (Some(old), Some(new)) =
-                    (old_lt, self.sel_monitor().map(crate::monitor::Monitor::layout_idx))
+                    (old_lt, self.sel_monitor().map(Monitor::layout_idx))
                 && old != new
             {
                 crate::features::hooks::layout_change(self, old, new);
@@ -437,7 +437,7 @@ impl Rwl {
             let (mon_before, old_lt) = layout_before;
             if mon_before == self.sel_mon
                 && let (Some(old), Some(new)) =
-                    (old_lt, self.sel_monitor().map(crate::monitor::Monitor::layout_idx))
+                    (old_lt, self.sel_monitor().map(Monitor::layout_idx))
                 && old != new
             {
                 crate::features::ipc::event::layout(self, mon_before, old, new);
@@ -511,7 +511,7 @@ impl Rwl {
 
     /// Focus the first urgent window, switching monitor and tags to reach it.
     /// Mirrors dwl.c `focusurgent()`.
-    pub fn focus_urgent(&mut self) {
+    pub(crate) fn focus_urgent(&mut self) {
         // Find the first urgent window (search focus_stack first so the most
         // recently active urgent client wins, then fall back to windows list).
         let urgent = self

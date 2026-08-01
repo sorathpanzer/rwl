@@ -202,7 +202,7 @@ pub struct RoundedCornerState {
 impl RoundedCornerState {
     /// Compile shaders and create the dummy buffer on `renderer`.
     /// Called once per GPU device at backend initialisation time.
-    pub fn init(renderer: &mut GlesRenderer) -> Self {
+    pub(crate) fn init(renderer: &mut GlesRenderer) -> Self {
         Self {
             corner_shader:       compile_rounded_corner_shader(renderer),
             border_shader:       compile_rounded_border_shader(renderer),
@@ -494,7 +494,7 @@ pub fn rounded_border_elements(
 
         #[cfg(feature = "tag-transition")]
         let slide_x_px: i32 =
-            crate::window::with_state(w, |s| (s.slide_offset_x * scale).round() as i32).unwrap_or(0);
+            with_state(w, |s| (s.slide_offset_x * scale).round() as i32).unwrap_or(0);
 
         let outer_logical: Rectangle<i32, Logical> = Rectangle::new(
             Point::from((geom.loc.x - bw, geom.loc.y - bw)),

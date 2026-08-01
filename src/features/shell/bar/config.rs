@@ -1,12 +1,12 @@
 use azoth_render::RustColor;
 
-pub const DEFAULT_FONT: &str = "UbuntuMono Nerd Font:style=Bold:size=14";
-pub const DEFAULT_VERTICAL_PADDING: u32 = 4;
-pub const DEFAULT_BUFFER_SCALE: u32 = 1;
-pub const DEFAULT_TAG_NAMES: &[&str] = &["1","2","3","4","5","6"];
+pub(super) const DEFAULT_FONT: &str = "UbuntuMono Nerd Font:style=Bold:size=14";
+pub(super) const DEFAULT_VERTICAL_PADDING: u32 = 4;
+pub(super) const DEFAULT_BUFFER_SCALE: u32 = 1;
+pub(super) const DEFAULT_TAG_NAMES: &[&str] = &["1","2","3","4","5","6"];
 
 #[derive(Clone)]
-pub struct Block {
+pub(super) struct Block {
     pub icon:     String,
     pub command:  String,
     pub interval: u32,
@@ -15,7 +15,7 @@ pub struct Block {
 }
 
 #[allow(clippy::struct_excessive_bools)]
-pub struct Config {
+pub(super) struct Config {
     pub ipc: bool,
     pub hidden: bool,
     pub bottom: bool,
@@ -78,7 +78,7 @@ const fn hex_to_rust_color(hex: u32) -> RustColor {
 }
 
 impl Config {
-    pub fn from_settings(s: &super::BarSettings) -> Self {
+    pub(super) fn from_settings(s: &super::BarSettings) -> Self {
         Self {
             ipc:                true,
             hidden:             s.hidden,
@@ -104,7 +104,7 @@ impl Config {
     }
 }
 
-pub fn blocks_from_settings(s: &super::BarSettings) -> Vec<Block> {
+pub(super) fn blocks_from_settings(s: &super::BarSettings) -> Vec<Block> {
     s.blocks.iter().map(|b| Block {
         icon:     b.icon.clone(),
         command:  b.command.clone(),

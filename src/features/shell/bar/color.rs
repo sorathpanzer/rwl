@@ -1,6 +1,6 @@
 use super::ffi::RustColor;
 
-pub fn parse_color(s: &str) -> Result<RustColor, &'static str> {
+pub(super) fn parse_color(s: &str) -> Result<RustColor, &'static str> {
     let s = s.strip_prefix('#').unwrap_or(s);
     if (s.len() != 6 && s.len() != 8)
         || !s.chars().next().is_some_and(|c| c.is_ascii_hexdigit())

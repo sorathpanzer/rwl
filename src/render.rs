@@ -102,7 +102,7 @@ pub struct ThumbRound<'a> {
     /// Shader that draws a rounded border ring.
     pub border_shader: &'a smithay::backend::renderer::gles::GlesTexProgram,
     /// 1×1 dummy buffer that carries the border shader.
-    pub dummy_buffer: &'a smithay::backend::renderer::element::memory::MemoryRenderBuffer,
+    pub dummy_buffer: &'a MemoryRenderBuffer,
     /// Corner radius in physical pixels.
     pub radius_px: f32,
     /// Whether the framebuffer Y-axis is inverted (EGL convention).

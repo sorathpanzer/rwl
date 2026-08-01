@@ -332,7 +332,7 @@ impl CompositorHandler for Rwl {
                         // first commit a buffer, so mapping them here would make
                         // them briefly visible.  Instead, stash the position in
                         // saved_loc so arrange() uses it when toggled on-screen.
-                        let win_tags = crate::window::with_state(w, |s| s.tags).unwrap_or(0);
+                        let win_tags = with_state(w, |s| s.tags).unwrap_or(0);
                         let visible_on_any =
                             self.monitors.iter().any(|m| m.tags() & win_tags != 0);
                         if visible_on_any {
@@ -354,7 +354,7 @@ impl CompositorHandler for Rwl {
                 smithay::wayland::compositor::with_states(t.wl_surface(), |states| {
                     states
                         .data_map
-                        .get::<smithay::wayland::shell::xdg::XdgToplevelSurfaceData>()
+                        .get::<XdgToplevelSurfaceData>()
                         .and_then(|d| d.lock().ok().map(|g| (g.title.clone(), g.app_id.clone())))
                 })
             }).or_else(|| {

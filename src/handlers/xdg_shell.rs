@@ -46,7 +46,7 @@ impl XdgShellHandler for Rwl {
         // included in the very first configure the client receives.
         surface.with_pending_state(|state| {
             state.decoration_mode =
-                Some(smithay::reexports::wayland_protocols::xdg::decoration::zv1::server::zxdg_toplevel_decoration_v1::Mode::ServerSide);
+                Some(wayland_protocols::xdg::decoration::zv1::server::zxdg_toplevel_decoration_v1::Mode::ServerSide);
         });
 
         // Send an initial configure with decoration mode but WITHOUT Activated.

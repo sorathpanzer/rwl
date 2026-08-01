@@ -567,7 +567,7 @@ impl State {
         // Render into the reused scratch buffer. Taken out by value so the render
         // can read the bar's other fields without a borrow conflict; put back at
         // the end so its allocation is reused next frame.
-        let mut scratch = std::mem::take(&mut self.bars[idx].scratch);
+        let mut scratch = mem::take(&mut self.bars[idx].scratch);
         let num_pixels = self.bars[idx].bufsize / 4;
         scratch.clear();
         scratch.resize(num_pixels, 0);
@@ -1488,7 +1488,7 @@ fn parse_hex_color(s: &str) -> Option<azoth_render::RustColor> {
     })
 }
 
-fn write_all_fd(fd: &OwnedFd, mut data: &[u8]) -> Result<(), rustix::io::Errno> {
+fn write_all_fd(fd: &OwnedFd, mut data: &[u8]) -> Result<(), Errno> {
     while !data.is_empty() {
         match rustix::io::write(fd, data) {
             Ok(n)            => data = &data[n..],
@@ -1501,7 +1501,7 @@ fn write_all_fd(fd: &OwnedFd, mut data: &[u8]) -> Result<(), rustix::io::Errno> 
 
 /// Write all of `data` into `fd` starting at byte `offset`, so a specific
 /// double-buffer slot can be filled without disturbing the other slot.
-fn pwrite_all_fd(fd: &OwnedFd, mut data: &[u8], mut offset: u64) -> Result<(), rustix::io::Errno> {
+fn pwrite_all_fd(fd: &OwnedFd, mut data: &[u8], mut offset: u64) -> Result<(), Errno> {
     while !data.is_empty() {
         match rustix::io::pwrite(fd, data, offset) {
             Ok(0)            => return Err(Errno::IO),
@@ -1630,7 +1630,7 @@ fn handle_socket_command(buf: &str, state: &mut State, qh: &QueueHandle<State>, 
                 state.tags.clone_from(&settings.tag_names);
             }
             if let Ok(mut g) = state.shared_blocks.lock() {
-                let new_blocks = config::blocks_from_settings(settings);
+                let new_blocks = blocks_from_settings(settings);
                 let new_delim  = settings.blocks_delim.clone();
                 *g = (new_blocks, new_delim, true);
             }
@@ -1830,7 +1830,7 @@ fn run_event_loop(
                         // flooding client can't hang the bar thread or exhaust
                         // memory (defence in depth; the socket dir is 0700).
                         let _ = stream.set_read_timeout(Some(std::time::Duration::from_millis(200)));
-                        let _ = io::Read::by_ref(&mut stream).take(64 * 1024).read_to_string(&mut buf);
+                        let _ = Read::by_ref(&mut stream).take(64 * 1024).read_to_string(&mut buf);
                         if !buf.is_empty() { handle_socket_command(&buf, &mut state, qh, notification_flag); }
                     }
                     Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
@@ -1871,7 +1871,7 @@ fn run_event_loop(
                     Ok(_) => {}
                 }
             }
-            let (new_status, new_bounds) = std::mem::take(&mut *latest_status.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
+            let (new_status, new_bounds) = mem::take(&mut *latest_status.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
             if !new_status.is_empty() {
                 let parsed = Arc::new(parse_into_customtext(&new_status, &state.cfg));
                 let pix_ends = compute_pix_ends(&state.font, &new_status, &new_bounds);
@@ -1948,7 +1948,7 @@ fn run_event_loop(
 // ── IPC helpers callable from the WM main thread ─────────────────────────────
 
 /// Holds the Unix socket path once the bar thread has bound its listener.
-static BAR_SOCKET: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+static BAR_SOCKET: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
 
 /// Send a socket command to the bar from any thread (e.g. from a keybind handler).
 ///
@@ -1980,7 +1980,7 @@ static BAR_DISPLAY: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::n
 /// `DISPLAY`.  The embedded bar is a thread sharing the compositor's environment,
 /// which has no `DISPLAY`, so this must be applied explicitly.
 fn apply_display_env(command: &mut std::process::Command) {
-    match BAR_DISPLAY.get().and_then(std::option::Option::as_ref) {
+    match BAR_DISPLAY.get().and_then(Option::as_ref) {
         Some(disp) => {
             command.env("DISPLAY", disp);
         }
@@ -2105,7 +2105,7 @@ fn run_bar(ipc_fd: OwnedFd, settings: BarSettings, wayland_socket: String, notif
     let conn = {
         let sock_path = if wayland_socket.starts_with('/') {
             PathBuf::from(&wayland_socket)
-        } else if let Some(dir) = std::env::var_os("XDG_RUNTIME_DIR") {
+        } else if let Some(dir) = env::var_os("XDG_RUNTIME_DIR") {
             Path::new(&dir).join(&wayland_socket)
         } else {
             tracing::error!("[bar] XDG_RUNTIME_DIR unset; cannot connect to compositor");
@@ -2113,7 +2113,7 @@ fn run_bar(ipc_fd: OwnedFd, settings: BarSettings, wayland_socket: String, notif
             azoth_render::fini_fcft();
             return;
         };
-        match std::os::unix::net::UnixStream::connect(&sock_path)
+        match UnixStream::connect(&sock_path)
             .map_err(|e| e.to_string())
             .and_then(|s| Connection::from_socket(s).map_err(|e| e.to_string()))
         {

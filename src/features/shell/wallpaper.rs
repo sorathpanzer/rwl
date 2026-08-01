@@ -48,7 +48,7 @@ pub enum WallpaperMode {
 impl WallpaperMode {
     /// Parse a config string (`fill` / `fit` / `stretch` / `center`).
     #[must_use]
-    pub fn parse(s: &str) -> Option<Self> {
+    pub(crate) fn parse(s: &str) -> Option<Self> {
         match s {
             "fill"    => Some(Self::Fill),
             "fit"     => Some(Self::Fit),

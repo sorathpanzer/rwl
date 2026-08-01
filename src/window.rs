@@ -158,7 +158,7 @@ pub struct WindowState {
 impl WindowState {
     /// Create a default [`WindowState`] for a newly mapped window.
     #[must_use]
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let cfg = crate::config::get();
         Self {
             tags: 0,

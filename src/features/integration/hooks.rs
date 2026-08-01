@@ -224,7 +224,7 @@ fn apply(state: &mut Rwl, cmd: HookCmd) {
         HookCmd::SetTags(window, mask) => {
             let mask = mask & crate::config::tag_mask();
             if mask != 0 && state.windows.contains(&window) {
-                crate::window::set_window_tags(&window, mask);
+                set_window_tags(&window, mask);
                 state.arrange_all();
                 let top = state.focused_window().cloned();
                 state.focus_window(top);
@@ -232,7 +232,7 @@ fn apply(state: &mut Rwl, cmd: HookCmd) {
         }
         HookCmd::SetFloating(window, floating) => {
             if state.windows.contains(&window) {
-                crate::window::with_state_mut(&window, |s| {
+                with_state_mut(&window, |s| {
                     s.is_floating = floating;
                     if floating {
                         s.needs_centering = true;
