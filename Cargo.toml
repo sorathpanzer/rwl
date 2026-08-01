@@ -58,6 +58,13 @@ unused_lifetimes = "warn"
 trivial_casts = "warn"
 trivial_numeric_casts = "warn"
 
+unreachable_pub = "warn"
+unused_crate_dependencies = "warn"
+unused_import_braces = "warn"
+unused_qualifications = "warn"
+let_underscore_drop = "warn"
+macro_use_extern_crate = "deny"
+
 [lints.clippy]
 enum_glob_use = "forbid"
 pedantic = { level = "warn", priority = -1 }
