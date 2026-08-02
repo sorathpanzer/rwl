@@ -2,7 +2,7 @@
 
 /// Top-level error type for the compositor.
 #[derive(Debug, thiserror::Error)]
-pub enum RwlError {
+pub(crate) enum RwlError {
     /// Failed to initialise the Wayland display.
     #[error("Wayland display error: {0}")]
     Display(String),
@@ -41,4 +41,4 @@ pub enum RwlError {
 }
 
 /// Convenient `Result` alias used throughout the crate.
-pub type Result<T> = std::result::Result<T, RwlError>;
+pub(crate) type Result<T> = std::result::Result<T, RwlError>;

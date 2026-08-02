@@ -10,12 +10,12 @@
 
 pub mod udev;
 
-pub use udev::UdevData;
+pub(crate) use udev::UdevData;
 #[cfg(feature = "winit")]
-pub use crate::features::winit::WinitData;
+pub(crate) use crate::features::winit::WinitData;
 
 /// Discriminated union of all supported backend data structs.
-pub enum BackendData {
+pub(crate) enum BackendData {
     /// udev/DRM/libinput backend (TTY / bare-metal use).
     Udev(Box<UdevData>),
     /// Winit backend (nested inside a Wayland or X11 compositor).

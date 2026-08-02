@@ -192,7 +192,7 @@ fn enqueue(cmd: HookCmd) {
 /// Apply all queued commands to the compositor. Safe to call from anywhere with
 /// `&mut Rwl`; no-ops re-entrantly. Bounded so a callback that keeps enqueuing
 /// (e.g. `on_tag_switch` calling `rwl.view`) can't hang the loop.
-pub fn drain(state: &mut Rwl) {
+pub(crate) fn drain(state: &mut Rwl) {
     if DRAINING.with(Cell::get) {
         return;
     }
@@ -315,7 +315,7 @@ fn apply(state: &mut Rwl, cmd: HookCmd) {
 /// Refresh [`SNAPSHOT`] with the selected monitor's live state. Called by the
 /// fire helpers before invoking a callback so the `rwl.*` read helpers reflect
 /// the compositor state at the moment the hook runs.
-pub fn refresh(state: &Rwl) {
+pub(crate) fn refresh(state: &Rwl) {
     let sel = state.sel_mon;
     let sel_tags = state.monitors.get(sel).map_or(0, crate::monitor::Monitor::tags);
     SNAPSHOT.with(|snap| {
@@ -419,7 +419,7 @@ const fn layout_kind_name(kind: LayoutKind) -> &'static str {
 /// *outside* the window's content rect — stays on screen, matching the built-in
 /// layouts. A lone tiled window gets no border, also like the built-ins.
 #[allow(clippy::cast_possible_truncation, clippy::many_single_char_names)]
-pub fn lua_arrange(
+pub(crate) fn lua_arrange(
     monitor: &crate::monitor::Monitor,
     cfacts: &[f64],
 ) -> Vec<smithay::utils::Rectangle<i32, smithay::utils::Logical>> {
@@ -595,7 +595,7 @@ impl UserData for LuaWindow {
 /// Register the global `rwl` helper table in `lua`. Must run **before** the
 /// config source is executed so callbacks can reference `rwl.*`.
 #[allow(clippy::too_many_lines)]
-pub fn setup(lua: &Lua) -> mlua::Result<()> {
+pub(crate) fn setup(lua: &Lua) -> mlua::Result<()> {
     let rwl = lua.create_table()?;
 
     rwl.set(
@@ -819,7 +819,7 @@ pub fn setup(lua: &Lua) -> mlua::Result<()> {
 
 /// Take ownership of the loaded VM, keeping it alive for hook dispatch. Replaces
 /// any previous VM (config reload) and clears per-session tracking.
-pub fn install(lua: Lua) {
+pub(crate) fn install(lua: Lua) {
     LUA.with(|c| *c.borrow_mut() = Some(lua));
     LAST_FOCUS.with(|c| *c.borrow_mut() = None);
     QUEUE.with(|q| q.borrow_mut().clear());
@@ -865,7 +865,7 @@ fn fire_window(name: &str, window: &Window) {
 /// is not yet arranged, so `win:set_tags` / `win:set_floating` act like a rule.
 /// The just-opened window is already in `state.windows`, so it is included in
 /// the `rwl.count` snapshot.
-pub fn window_open(state: &Rwl, window: &Window) {
+pub(crate) fn window_open(state: &Rwl, window: &Window) {
     if !has_hook("on_window_open") {
         return;
     }
@@ -876,7 +876,7 @@ pub fn window_open(state: &Rwl, window: &Window) {
 /// Fire `on_window_close(win)` — the window has already been removed from
 /// `state.windows`, so `rwl.count` reflects the post-close tally (useful for
 /// reverting a dynamic layout when a tag drops below a threshold).
-pub fn window_close(state: &Rwl, window: &Window) {
+pub(crate) fn window_close(state: &Rwl, window: &Window) {
     if !has_hook("on_window_close") {
         return;
     }
@@ -886,7 +886,7 @@ pub fn window_close(state: &Rwl, window: &Window) {
 
 /// Fire `on_focus(win)`, de-duplicated so it only runs when the focused client
 /// actually changes.
-pub fn focus(state: &Rwl, window: &Window) {
+pub(crate) fn focus(state: &Rwl, window: &Window) {
     if !has_hook("on_focus") {
         return;
     }
@@ -926,7 +926,7 @@ fn fire_nullary(name: &str) {
 /// launch instead of leaving it unset (a black screen). Runs at most once per
 /// process; it is **not** re-fired on config reload (the wallpaper override, and
 /// any other applied state, already survives a reload).
-pub fn startup(state: &Rwl, current_tags: u32) {
+pub(crate) fn startup(state: &Rwl, current_tags: u32) {
     if STARTUP_DONE.with(Cell::get) {
         return;
     }
@@ -945,7 +945,7 @@ pub fn startup(state: &Rwl, current_tags: u32) {
 }
 
 /// Fire `on_tag_switch(old_mask, new_mask)`.
-pub fn tag_switch(state: &Rwl, old: u32, new: u32) {
+pub(crate) fn tag_switch(state: &Rwl, old: u32, new: u32) {
     if !has_hook("on_tag_switch") {
         return;
     }
@@ -961,7 +961,7 @@ pub fn tag_switch(state: &Rwl, old: u32, new: u32) {
 }
 
 /// Fire `on_title_change(win, new_title)`.
-pub fn title_change(state: &Rwl, window: &Window, title: &str) {
+pub(crate) fn title_change(state: &Rwl, window: &Window, title: &str) {
     if !has_hook("on_title_change") {
         return;
     }
@@ -996,7 +996,7 @@ fn layout_name(idx: usize) -> String {
 /// symbol names (e.g. `"tile"`, `"col"`). Fired generically from `dispatch`
 /// whenever the active layout index changes (including a per-tag layout that
 /// changes as a side effect of switching tags).
-pub fn layout_change(state: &Rwl, old_idx: usize, new_idx: usize) {
+pub(crate) fn layout_change(state: &Rwl, old_idx: usize, new_idx: usize) {
     if !has_hook("on_layout_change") {
         return;
     }
@@ -1015,7 +1015,7 @@ pub fn layout_change(state: &Rwl, old_idx: usize, new_idx: usize) {
 /// Fire `on_fullscreen(win, is_fullscreen)` when a window's fullscreen state is
 /// toggled by the user or the client. Not fired for `win:set_fullscreen` calls
 /// made from Lua itself (which would risk a feedback loop).
-pub fn fullscreen(state: &Rwl, window: &Window, is_fullscreen: bool) {
+pub(crate) fn fullscreen(state: &Rwl, window: &Window, is_fullscreen: bool) {
     if !has_hook("on_fullscreen") {
         return;
     }
@@ -1051,7 +1051,7 @@ fn fire_named(hook: &str, name: &str) {
 
 /// Fire `on_monitor_add(name)` after an output has been added (including the
 /// first one at startup) — `name` is the connector/output name.
-pub fn monitor_add(state: &Rwl, name: &str) {
+pub(crate) fn monitor_add(state: &Rwl, name: &str) {
     if !has_hook("on_monitor_add") {
         return;
     }
@@ -1061,7 +1061,7 @@ pub fn monitor_add(state: &Rwl, name: &str) {
 
 /// Fire `on_monitor_remove(name)` after an output has been unplugged/removed and
 /// its windows migrated to a surviving monitor.
-pub fn monitor_remove(state: &Rwl, name: &str) {
+pub(crate) fn monitor_remove(state: &Rwl, name: &str) {
     if !has_hook("on_monitor_remove") {
         return;
     }
@@ -1074,7 +1074,7 @@ pub fn monitor_remove(state: &Rwl, name: &str) {
 /// "the monitor layout settled, recompute anything that spans outputs" signal.
 /// Fired in addition to `on_monitor_add` / `on_monitor_remove`, and on a config
 /// reload that repositions outputs.
-pub fn monitor_layout(state: &Rwl) {
+pub(crate) fn monitor_layout(state: &Rwl) {
     if !has_hook("on_monitor_layout") {
         return;
     }
@@ -1084,7 +1084,7 @@ pub fn monitor_layout(state: &Rwl) {
 
 /// Fire `on_urgency(win)` when a window raises an urgency hint (xdg-activation or
 /// an X11 urgency request), so config can toast / bump / focus it.
-pub fn urgency(state: &Rwl, window: &Window) {
+pub(crate) fn urgency(state: &Rwl, window: &Window) {
     if !has_hook("on_urgency") {
         return;
     }
@@ -1094,7 +1094,7 @@ pub fn urgency(state: &Rwl, window: &Window) {
 
 /// Fire `on_lock()` when the session becomes locked (native locker or an
 /// `ext-session-lock` client).
-pub fn lock(state: &Rwl) {
+pub(crate) fn lock(state: &Rwl) {
     if !has_hook("on_lock") {
         return;
     }
@@ -1103,7 +1103,7 @@ pub fn lock(state: &Rwl) {
 }
 
 /// Fire `on_unlock()` when the session is unlocked.
-pub fn unlock(state: &Rwl) {
+pub(crate) fn unlock(state: &Rwl) {
     if !has_hook("on_unlock") {
         return;
     }
@@ -1114,7 +1114,7 @@ pub fn unlock(state: &Rwl) {
 /// Fire `on_config_error(msg)` after a config load/reload that produced an error
 /// or unknown keys, so the user can surface it (notify-send, a bar warning, …).
 /// `msg` is the human-readable error string from [`crate::config::config_error`].
-pub fn config_error(state: &Rwl, msg: &str) {
+pub(crate) fn config_error(state: &Rwl, msg: &str) {
     if !has_hook("on_config_error") {
         return;
     }
@@ -1126,7 +1126,7 @@ pub fn config_error(state: &Rwl, msg: &str) {
 /// `call` keybind action. Refreshes the read-helper snapshot first so `rwl.*`
 /// queries inside the function see live state; any action helpers the function
 /// calls are enqueued and applied when the caller drains the command queue.
-pub fn call(state: &Rwl, name: &str) {
+pub(crate) fn call(state: &Rwl, name: &str) {
     if !has_hook(name) {
         return;
     }
@@ -1138,7 +1138,7 @@ pub fn call(state: &Rwl, name: &str) {
 /// declarative `rules` table. Every field is optional — a `None` leaves the
 /// value computed from the static rules untouched.
 #[derive(Default)]
-pub struct RuleOverride {
+pub(crate) struct RuleOverride {
     /// Tag bitmask to place the window on.
     pub tags: Option<u32>,
     /// Whether the window should float.
@@ -1163,7 +1163,7 @@ pub struct RuleOverride {
 /// A missing callback, a non-table return, or a Lua error all yield `None` so
 /// the static rules stand unchanged and a broken predicate never loses a window.
 #[must_use]
-pub fn window_rule(state: &Rwl, window: &Window) -> Option<RuleOverride> {
+pub(crate) fn window_rule(state: &Rwl, window: &Window) -> Option<RuleOverride> {
     if !has_hook("on_window_rule") {
         return None;
     }

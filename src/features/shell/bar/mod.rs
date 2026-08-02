@@ -21,7 +21,7 @@ mod text;
 // parser lives in `config::settings`; these own the shape + defaults.
 
 #[derive(Clone, Debug)]
-pub struct BlockSettings {
+pub(crate) struct BlockSettings {
     pub icon:     String,
     pub command:  String,
     pub interval: u32,
@@ -35,7 +35,7 @@ pub struct BlockSettings {
 
 #[derive(Clone, Debug)]
 #[allow(clippy::struct_excessive_bools)]
-pub struct BarSettings {
+pub(crate) struct BarSettings {
     pub font:               String,
     pub vertical_padding:   u32,
     pub buffer_scale:       u32,
@@ -1401,7 +1401,7 @@ impl Dispatch<dwl_ipc::zdwl_ipc_output_v2::ZdwlIpcOutputV2, usize> for State {
 /// opens; the result is cached in [`Bar::prompt_commands`] and reused for both
 /// the inline ghost suggestion and Tab-completion.
 #[must_use]
-pub fn scan_path_commands() -> Vec<String> {
+pub(crate) fn scan_path_commands() -> Vec<String> {
     use std::collections::HashSet;
     let mut commands = HashSet::new();
     let mut paths_to_search = Vec::new();
@@ -1710,7 +1710,7 @@ fn process_stdin_buf(buf: &str, bars: &mut [Bar]) {
 
 struct SocketCleanup(PathBuf);
 impl Drop for SocketCleanup {
-    fn drop(&mut self) { let _ = fs::remove_file(&self.0); }
+    fn drop(&mut self) { let _unused = fs::remove_file(&self.0); }
 }
 
 // ── Event loop helpers ────────────────────────────────────────────────────────
@@ -1829,8 +1829,8 @@ fn run_event_loop(
                         // Bound the read in time and size so a stalled or
                         // flooding client can't hang the bar thread or exhaust
                         // memory (defence in depth; the socket dir is 0700).
-                        let _ = stream.set_read_timeout(Some(std::time::Duration::from_millis(200)));
-                        let _ = Read::by_ref(&mut stream).take(64 * 1024).read_to_string(&mut buf);
+                        let _unused = stream.set_read_timeout(Some(std::time::Duration::from_millis(200)));
+                        let _unused = Read::by_ref(&mut stream).take(64 * 1024).read_to_string(&mut buf);
                         if !buf.is_empty() { handle_socket_command(&buf, &mut state, qh, notification_flag); }
                     }
                     Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
@@ -1954,13 +1954,13 @@ static BAR_SOCKET: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
 ///
 /// `cmd` must be a complete command string such as `"all toggle-visibility"` or
 /// `"selected prompt"`.  Silently does nothing if the bar isn't running yet.
-pub fn send_bar_command(cmd: &str) {
+pub(crate) fn send_bar_command(cmd: &str) {
     use std::io::Write as _;
     use std::os::unix::net::UnixStream;
     if let Some(path) = BAR_SOCKET.get()
         && let Ok(mut s) = UnixStream::connect(path)
     {
-        let _ = s.write_all(cmd.as_bytes());
+        let _unused = s.write_all(cmd.as_bytes());
     }
 }
 
@@ -1990,8 +1990,8 @@ fn apply_display_env(command: &mut std::process::Command) {
     }
 }
 
-pub fn start(reader: PipeReader, settings: BarSettings, wayland_socket: String, notification_flag: Arc<AtomicBool>, xdisplay: Option<String>) {
-    let _ = BAR_DISPLAY.set(xdisplay);
+pub(crate) fn start(reader: PipeReader, settings: BarSettings, wayland_socket: String, notification_flag: Arc<AtomicBool>, xdisplay: Option<String>) {
+    let _unused = BAR_DISPLAY.set(xdisplay);
     let ipc_fd: OwnedFd = reader.into();
     if let Err(e) = thread::Builder::new().name("bar".into()).spawn(move || run_bar(ipc_fd, settings, wayland_socket, &notification_flag)) {
         tracing::warn!("[bar] failed to spawn bar thread: {e}");
@@ -2075,7 +2075,7 @@ fn run_bar(ipc_fd: OwnedFd, settings: BarSettings, wayland_socket: String, notif
         return;
     };
     fs::create_dir_all(&dir).ok();
-    let _ = fs::set_permissions(&dir, fs::Permissions::from_mode(0o700));
+    let _unused = fs::set_permissions(&dir, fs::Permissions::from_mode(0o700));
 
     let Some(socket_path) = find_socket_path(&dir) else {
         tracing::error!("[bar] Could not secure a socket path in {:?}", dir);
@@ -2083,7 +2083,7 @@ fn run_bar(ipc_fd: OwnedFd, settings: BarSettings, wayland_socket: String, notif
         azoth_render::fini_fcft();
         return;
     };
-    let _ = fs::remove_file(&socket_path);
+    let _unused = fs::remove_file(&socket_path);
     let listener = match UnixListener::bind(&socket_path) {
         Ok(l) => l,
         Err(e) => {

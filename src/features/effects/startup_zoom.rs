@@ -39,7 +39,7 @@ impl ZoomDirection {
 /// output element in a centred rescale by `scale` and schedules another frame),
 /// or `None` once it has finished or when the effect is disabled
 /// (`startup_zoom_ms == 0`).
-pub fn advance(state: &mut crate::state::Rwl) -> Option<f64> {
+pub(crate) fn advance(state: &mut crate::state::Rwl) -> Option<f64> {
     if state.startup_zoom_done {
         return None;
     }

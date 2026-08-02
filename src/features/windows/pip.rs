@@ -126,7 +126,7 @@ impl std::fmt::Debug for PipState {
 // ---------------------------------------------------------------------------
 
 /// Toggle PiP: enable it on the focused window, or disable it if already on.
-pub fn toggle(state: &mut Rwl) {
+pub(crate) fn toggle(state: &mut Rwl) {
     if state.pip.is_some() {
         state.pip = None;
         state.schedule_render();
@@ -147,7 +147,7 @@ pub fn toggle(state: &mut Rwl) {
 }
 
 /// Cycle the PiP thumbnail to the next corner.
-pub fn move_corner(state: &mut Rwl) {
+pub(crate) fn move_corner(state: &mut Rwl) {
     if let Some(pip) = state.pip.as_mut() {
         pip.corner = pip.corner.next();
         pip.counter.increment();
@@ -156,7 +156,7 @@ pub fn move_corner(state: &mut Rwl) {
 }
 
 /// Clear PiP if its window just closed.
-pub fn on_window_closed(state: &mut Rwl, window: &Window) {
+pub(crate) fn on_window_closed(state: &mut Rwl, window: &Window) {
     if state.pip.as_ref().is_some_and(|p| &p.window == window) {
         state.pip = None;
         state.schedule_render();
@@ -171,7 +171,7 @@ pub fn on_window_closed(state: &mut Rwl, window: &Window) {
 /// when it lives on a hidden tag (and is therefore unmapped from the space and
 /// skipped by the normal frame-callback loop). No-op when the window is already
 /// visible on this output or lives on a different output.
-pub fn send_frame(state: &Rwl, output: &Output, time: impl Into<std::time::Duration>) {
+pub(crate) fn send_frame(state: &Rwl, output: &Output, time: impl Into<std::time::Duration>) {
     let Some(pip) = state.pip.as_ref() else { return };
     if &pip.output != output || !pip.window.alive() {
         return;
@@ -195,7 +195,7 @@ pub fn send_frame(state: &Rwl, output: &Output, time: impl Into<std::time::Durat
 /// opaque backdrop.
 #[cfg_attr(not(feature = "rounded-corners"), allow(unused_variables))]
 #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_sign_loss)]
-pub fn pip_elements(
+pub(crate) fn pip_elements(
     renderer: &mut GlesRenderer,
     pip: &PipState,
     space: &Space<Window>,
@@ -245,7 +245,7 @@ pub fn pip_elements(
         #[cfg(feature = "rounded-corners")]
         {
             if let Some(r) = round.as_ref() {
-                if let Some(elem) = crate::render::rounded_thumb_ring(
+                if let Some(elem) = crate::features::rounded_corners::rounded_thumb_ring(
                     renderer, &pip.border_ids[0], box_rect, border_color, border_px, r, output_h_phys, scale, pip.counter,
                 ) {
                     elems.push(RwlRenderElement::RoundedBorder(elem));
@@ -268,9 +268,9 @@ pub fn pip_elements(
     #[cfg(feature = "rounded-corners")]
     {
         if let Some(r) = round.as_ref() {
-            let (cx, cy, cw, ch) = crate::render::thumb_corners(box_rect, r.y_inverted, output_h_phys, scale);
+            let (cx, cy, cw, ch) = crate::features::rounded_corners::thumb_corners(box_rect, r.y_inverted, output_h_phys, scale);
             elems.extend(thumbs.map(|inner| {
-                RwlRenderElement::RoundedOverview(crate::render::RoundedThumbElem {
+                RwlRenderElement::RoundedOverview(crate::features::rounded_corners::RoundedThumbElem {
                     inner,
                     corner_x: cx,
                     corner_y: cy,

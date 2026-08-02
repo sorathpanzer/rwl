@@ -35,7 +35,7 @@ pub fn socket_path() -> Option<PathBuf> {
 /// Bind the WM IPC socket, register it with the calloop event loop, and export
 /// `RWL_SOCK`.  Returns the socket path on success (caller should delete it on
 /// shutdown) or `None` if binding failed.
-pub fn register(
+pub(crate) fn register(
     loop_handle: &smithay::reexports::calloop::LoopHandle<'static, Rwl>,
 ) -> Option<PathBuf> {
     let Some(path) = socket_path() else {
@@ -45,7 +45,7 @@ pub fn register(
         );
         return None;
     };
-    let _ = std::fs::remove_file(&path);
+    let _unused = std::fs::remove_file(&path);
     let listener = match UnixListener::bind(&path) {
         Ok(l) => l,
         Err(e) => { tracing::warn!("[wm-ipc] bind {path:?}: {e}"); return None; }
@@ -55,10 +55,10 @@ pub fn register(
     // so no other user or group can connect and issue commands.
     if let Err(e) = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)) {
         tracing::warn!("[wm-ipc] chmod {path:?}: {e}");
-        let _ = std::fs::remove_file(&path);
+        let _unused = std::fs::remove_file(&path);
         return None;
     }
-    let _ = listener.set_nonblocking(true);
+    let _unused = listener.set_nonblocking(true);
     if let Err(e) = loop_handle.insert_source(
         Generic::new(listener, Interest::READ, Mode::Level),
         |_, listener, state| {
@@ -95,8 +95,8 @@ fn cmd_handle(mut stream: UnixStream, state: &mut Rwl) {
     // buggy/hostile local clients — a legitimate `rwl msg` writes its command
     // and closes at once. (`subscribe`/`watch` switch the stream to non-blocking
     // before streaming, so these timeouts only guard the one-shot paths.)
-    let _ = stream.set_read_timeout(Some(std::time::Duration::from_millis(200)));
-    let _ = stream.set_write_timeout(Some(std::time::Duration::from_millis(200)));
+    let _unused = stream.set_read_timeout(Some(std::time::Duration::from_millis(200)));
+    let _unused = stream.set_write_timeout(Some(std::time::Duration::from_millis(200)));
     let mut buf = String::new();
     if Read::by_ref(&mut stream)
         .take(MAX_CMD_BYTES)
@@ -121,8 +121,8 @@ fn cmd_handle(mut stream: UnixStream, state: &mut Rwl) {
                 .flat_map(|l| [l, "\n"])
                 .collect(),
         };
-        let _ = stream.write_all(out.as_bytes());
-        let _ = stream.set_nonblocking(true);
+        let _unused = stream.write_all(out.as_bytes());
+        let _unused = stream.set_nonblocking(true);
         state.ipc_subscribers.push((stream, filter));
         return;
     }
@@ -141,7 +141,7 @@ fn cmd_handle(mut stream: UnixStream, state: &mut Rwl) {
                     .collect(),
             )
         };
-        let _ = stream.set_nonblocking(true);
+        let _unused = stream.set_nonblocking(true);
         state.event_subscribers.push((stream, filter));
         return;
     }
@@ -196,13 +196,13 @@ fn cmd_dispatch(line: &str, stream: &mut UnixStream, state: &mut Rwl) {
                     .flat_map(|l| [l, "\n"])
                     .collect(),
             };
-            let _ = stream.write_all(out.as_bytes());
+            let _unused = stream.write_all(out.as_bytes());
         }
 
         // ── window-tree query (JSON) ──────────────────────────────────────────
         "clients" => {
             let out = crate::features::ipc::event::clients_json(state);
-            let _ = stream.write_all(out.as_bytes());
+            let _unused = stream.write_all(out.as_bytes());
         }
 
         // ── focused window query ──────────────────────────────────────────────
@@ -229,7 +229,7 @@ fn cmd_dispatch(line: &str, stream: &mut UnixStream, state: &mut Rwl) {
                 Some("floating")       => format!("{}\n", u32::from(floating)),
                 Some(f) => { tracing::debug!("[wm-ipc] info: unknown field '{f}'"); return; }
             };
-            let _ = stream.write_all(out.as_bytes());
+            let _unused = stream.write_all(out.as_bytes());
         }
 
         // ── per-output commands ───────────────────────────────────────────────

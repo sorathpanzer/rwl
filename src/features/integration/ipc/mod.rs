@@ -83,7 +83,7 @@ fn bar_send(dir: &Path, output: &str, cmd: &str, data: Option<&str>) {
         .flatten()
         .filter(|e| e.file_name().to_string_lossy().starts_with("dwlb-"))
         .filter_map(|e| UnixStream::connect(e.path()).ok())
-        .for_each(|mut s| { let _ = s.write_all(msg.as_bytes()); });
+        .for_each(|mut s| { let _unused = s.write_all(msg.as_bytes()); });
 }
 
 // ── WM socket helpers ─────────────────────────────────────────────────────────
@@ -98,7 +98,7 @@ fn wm_send(cmd_str: &str) {
         eprintln!("rwl msg: RWL_SOCK not set or compositor not running");
         return;
     };
-    let _ = s.write_all(cmd_str.as_bytes());
+    let _unused = s.write_all(cmd_str.as_bytes());
 }
 
 fn wm_query(cmd_str: &str) {
@@ -106,10 +106,10 @@ fn wm_query(cmd_str: &str) {
         eprintln!("rwl msg: RWL_SOCK not set or compositor not running");
         return;
     };
-    let _ = s.write_all(cmd_str.as_bytes());
-    let _ = s.shutdown(std::net::Shutdown::Write);
+    let _unused = s.write_all(cmd_str.as_bytes());
+    let _unused = s.shutdown(std::net::Shutdown::Write);
     let mut buf = String::new();
-    let _ = s.read_to_string(&mut buf);
+    let _unused = s.read_to_string(&mut buf);
     print!("{buf}");
 }
 
@@ -120,8 +120,8 @@ fn wm_stream(cmd_str: &str) {
         eprintln!("rwl msg: RWL_SOCK not set or compositor not running");
         return;
     };
-    let _ = s.write_all(cmd_str.as_bytes());
-    let _ = s.shutdown(std::net::Shutdown::Write);
+    let _unused = s.write_all(cmd_str.as_bytes());
+    let _unused = s.shutdown(std::net::Shutdown::Write);
     let stdout = std::io::stdout();
     for line in std::io::BufReader::new(s).lines() {
         let Ok(l) = line else { break };

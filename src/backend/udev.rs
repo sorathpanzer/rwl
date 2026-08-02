@@ -66,7 +66,7 @@ type GbmDrmCompositor = DrmCompositor<
 // ---------------------------------------------------------------------------
 
 /// State associated with one GPU device.
-pub struct DeviceData {
+pub(crate) struct DeviceData {
     // `surfaces` must be declared first so it is dropped before `drm`, `gbm`,
     // and `renderer`.  Each `GbmDrmCompositor` inside the map calls into the
     // DRM/GBM/EGL layer during Drop (cleanup modeset commit); those resources
@@ -85,7 +85,7 @@ pub struct DeviceData {
 }
 
 /// State associated with one CRTC / output.
-pub struct OutputSurface {
+pub(crate) struct OutputSurface {
     pub compositor: GbmDrmCompositor,
     pub output: Output,
     #[allow(dead_code)]
@@ -127,7 +127,7 @@ struct ConnInfo {
 // ---------------------------------------------------------------------------
 
 /// All data owned by the udev backend, stored alongside the compositor state.
-pub struct UdevData {
+pub(crate) struct UdevData {
     /// Per-GPU device map, keyed by device number (`libc::dev_t`).
     /// Declared before `session` so DRM surfaces (and their Drop cleanup
     /// commits) run while we still hold DRM master, before the session closes.
@@ -159,7 +159,7 @@ pub struct UdevData {
 /// be opened once `SessionEvent::ActivateSession` fires (as soon as the event
 /// loop starts dispatching the libseat source).  This ensures DRM master has
 /// actually been granted before we attempt EGL initialisation.
-pub fn init(
+pub(crate) fn init(
     loop_handle: &LoopHandle<'static, Rwl>,
     _display_handle: &DisplayHandle,
 ) -> Result<UdevData> {
@@ -413,7 +413,7 @@ impl Rwl {
             }
 
             // Rescan connectors — picks up any hotplug events during suspend.
-            let _ = self.scan_connectors(device_id);
+            let _unused = self.scan_connectors(device_id);
 
             // Kick the render loop for pre-existing outputs.  scan_connectors skips
             // CRTCs that already have an OutputSurface, so on_vblank is not called
@@ -650,7 +650,7 @@ impl Rwl {
 
     pub(crate) fn backend_device_changed(&mut self, device_id: libc::dev_t) {
         tracing::info!("DRM device changed, rescanning connectors");
-        let _ = self.scan_connectors(device_id);
+        let _unused = self.scan_connectors(device_id);
     }
 
     pub(crate) fn backend_device_removed(&mut self, device_id: libc::dev_t) {
@@ -1147,7 +1147,7 @@ impl Rwl {
                 let (window_elems, border_elems): (Vec<crate::render::RwlRenderElement>, Vec<crate::render::RwlRenderElement>) =
                     if overview_on {
                         #[cfg(feature = "rounded-corners")]
-                        let round = crate::render::thumb_round(&dev.rounded, scale, true);
+                        let round = crate::features::rounded_corners::thumb_round(&dev.rounded, scale, true);
                         #[cfg(not(feature = "rounded-corners"))]
                         let round = None;
                         let ov = self.overview.as_ref().map_or_else(Vec::new, |ov| {
@@ -1251,7 +1251,7 @@ impl Rwl {
                         Vec::new()
                     } else {
                         #[cfg(feature = "rounded-corners")]
-                        let round = crate::render::thumb_round(&dev.rounded, scale, true);
+                        let round = crate::features::rounded_corners::thumb_round(&dev.rounded, scale, true);
                         #[cfg(not(feature = "rounded-corners"))]
                         let round = None;
                         self.pip.as_ref().map_or_else(Vec::new, |pip| {
@@ -1667,7 +1667,7 @@ impl Rwl {
                 _ => return,
             };
         for (device_id, crtc) in pairs {
-            let _ = self.loop_handle.insert_idle(move |state| {
+            let _unused = self.loop_handle.insert_idle(move |state| {
                 // Skip if the device is paused (suspend / VT switch) — on_vblank
                 // would attempt EGL/DRM ioctls that can block in the kernel when
                 // the GPU is powered down, freezing the machine.

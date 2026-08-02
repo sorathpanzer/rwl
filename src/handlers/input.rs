@@ -700,7 +700,7 @@ impl Rwl {
 /// Convert smithay's [`ModifiersState`] to a simple bitmask matching our
 /// config constants.
 #[must_use]
-pub const fn mods_to_bits(mods: &ModifiersState) -> u32 {
+pub(crate) const fn mods_to_bits(mods: &ModifiersState) -> u32 {
     let mut bits: u32 = 0;
     if mods.logo {
         bits |= crate::config::MODKEY;
@@ -719,7 +719,7 @@ pub const fn mods_to_bits(mods: &ModifiersState) -> u32 {
 
 /// Strip `CapsLock` and `NumLock` from a modifier bitmask.
 #[must_use]
-pub const fn clean_mask(mask: u32) -> u32 {
+pub(crate) const fn clean_mask(mask: u32) -> u32 {
     // CapsLock bit is not in our bitmask scheme, so no-op here;
     // the keysym comparison handles the rest.
     mask

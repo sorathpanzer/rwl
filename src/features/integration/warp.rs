@@ -11,7 +11,7 @@ use crate::window::with_state;
 /// Called after keyboard-initiated focus changes so the pointer follows focus
 /// (mirrors C dwl's `warpcursor` behaviour).
 #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
-pub fn warp_cursor_to_focused(state: &mut crate::state::Rwl) {
+pub(crate) fn warp_cursor_to_focused(state: &mut crate::state::Rwl) {
     if !crate::config::get().warp_cursor {
         return;
     }

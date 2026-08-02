@@ -16,7 +16,7 @@ use crate::config::Color;
 /// Mutable metadata attached to every mapped window.
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Debug)]
-pub struct WindowState {
+pub(crate) struct WindowState {
     /// Tag bitmask this window belongs to.
     pub tags: u32,
     /// Whether the window is floating.
@@ -237,7 +237,7 @@ impl Default for WindowState {
 /// Returns `false` if the borrow could not be acquired (should never happen
 /// in single-threaded use).
 #[inline]
-pub fn with_state_mut<F>(window: &Window, f: F) -> bool
+pub(crate) fn with_state_mut<F>(window: &Window, f: F) -> bool
 where
     F: FnOnce(&mut WindowState),
 {
@@ -257,7 +257,7 @@ where
 /// Returns `None` if there is no state attached yet or the borrow fails.
 #[inline]
 #[must_use]
-pub fn with_state<F, R>(window: &Window, f: F) -> Option<R>
+pub(crate) fn with_state<F, R>(window: &Window, f: F) -> Option<R>
 where
     F: FnOnce(&WindowState) -> R,
 {
@@ -269,21 +269,21 @@ where
 /// Return the tags bitmask for `window`, or `0` if no state is attached.
 #[inline]
 #[must_use]
-pub fn window_tags(window: &Window) -> u32 {
+pub(crate) fn window_tags(window: &Window) -> u32 {
     with_state(window, |s| s.tags).unwrap_or(0)
 }
 
 /// Return `true` if `window` is floating.
 #[inline]
 #[must_use]
-pub fn window_is_floating(window: &Window) -> bool {
+pub(crate) fn window_is_floating(window: &Window) -> bool {
     with_state(window, |s| s.is_floating).unwrap_or(false)
 }
 
 /// Return `true` if `window` is fullscreen.
 #[inline]
 #[must_use]
-pub fn window_is_fullscreen(window: &Window) -> bool {
+pub(crate) fn window_is_fullscreen(window: &Window) -> bool {
     with_state(window, |s| s.is_fullscreen).unwrap_or(false)
 }
 
@@ -291,7 +291,7 @@ pub fn window_is_fullscreen(window: &Window) -> bool {
 #[cfg(feature = "scratchpad")]
 #[inline]
 #[must_use]
-pub fn window_is_scratch(window: &Window, key: char) -> bool {
+pub(crate) fn window_is_scratch(window: &Window, key: char) -> bool {
     with_state(window, |s| s.scratch_key == key).unwrap_or(false)
 }
 
@@ -300,37 +300,37 @@ pub fn window_is_scratch(window: &Window, key: char) -> bool {
 #[inline]
 #[allow(dead_code)]
 #[must_use]
-pub fn window_is_any_scratch(window: &Window) -> bool {
+pub(crate) fn window_is_any_scratch(window: &Window) -> bool {
     with_state(window, |s| s.scratch_key != '\0').unwrap_or(false)
 }
 
 /// Return `true` if `window` is visible on the given tag bitmask.
 #[inline]
 #[must_use]
-pub fn window_visible_on(window: &Window, tagset: u32) -> bool {
+pub(crate) fn window_visible_on(window: &Window, tagset: u32) -> bool {
     window_tags(window) & tagset != 0
 }
 
 /// Set the tags of a window.
 #[inline]
-pub fn set_window_tags(window: &Window, tags: u32) {
+pub(crate) fn set_window_tags(window: &Window, tags: u32) {
     with_state_mut(window, |s| s.tags = tags);
 }
 
 /// Toggle floating state of a window.
 #[inline]
-pub fn toggle_floating(window: &Window) {
+pub(crate) fn toggle_floating(window: &Window) {
     with_state_mut(window, |s| s.is_floating = !s.is_floating);
 }
 
 /// Set fullscreen state of a window.
 #[inline]
-pub fn set_fullscreen(window: &Window, fs: bool) {
+pub(crate) fn set_fullscreen(window: &Window, fs: bool) {
     with_state_mut(window, |s| s.is_fullscreen = fs);
 }
 
 /// Set urgent hint on a window.
 #[inline]
-pub fn set_urgent(window: &Window, urgent: bool) {
+pub(crate) fn set_urgent(window: &Window, urgent: bool) {
     with_state_mut(window, |s| s.is_urgent = urgent);
 }

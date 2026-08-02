@@ -21,7 +21,7 @@ use crate::monitor::Monitor;
     clippy::cast_sign_loss,
     clippy::cast_precision_loss,
 )]
-pub fn arrange(monitor: &Monitor, cfacts: &[f64]) -> Vec<Rectangle<i32, Logical>> {
+pub(crate) fn arrange(monitor: &Monitor, cfacts: &[f64]) -> Vec<Rectangle<i32, Logical>> {
     let n = cfacts.len();
     let cfg = crate::config::get();
     // No borders for a lone tiled window.

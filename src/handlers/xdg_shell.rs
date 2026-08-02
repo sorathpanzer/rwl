@@ -101,7 +101,7 @@ impl XdgShellHandler for Rwl {
     }
 
     fn move_request(&mut self, surface: ToplevelSurface, seat: WlSeat, serial: Serial) {
-        let _ = (seat, serial);
+        let _unused = (seat, serial);
         let window = self.window_map.get(surface.wl_surface()).cloned();
 
         if let Some(w) = window {
@@ -116,7 +116,7 @@ impl XdgShellHandler for Rwl {
         serial: Serial,
         edges: xdg_toplevel::ResizeEdge,
     ) {
-        let _ = (seat, serial);
+        let _unused = (seat, serial);
         let window = self.window_map.get(surface.wl_surface()).cloned();
 
         if let Some(w) = window {

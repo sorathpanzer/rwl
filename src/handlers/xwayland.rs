@@ -73,7 +73,7 @@ impl Rwl {
         ));
         with_state_mut(window, |s| s.saved_loc = Some(loc));
         self.space.map_element(window.clone(), loc, false);
-        let _ = x11.configure(Rectangle::new(loc, size));
+        let _unused = x11.configure(Rectangle::new(loc, size));
         self.schedule_render();
     }
 
@@ -238,7 +238,7 @@ impl XwmHandler for Rwl {
     fn unmapped_window(&mut self, _xwm: XwmId, window: X11Surface) {
         self.unmap_x11_window(&window);
         if !window.is_override_redirect() {
-            let _ = window.set_mapped(false);
+            let _unused = window.set_mapped(false);
         }
     }
 
@@ -268,7 +268,7 @@ impl XwmHandler for Rwl {
 
         if !is_floating {
             // Tiled: deny the move/resize, re-assert the layout geometry.
-            let _ = window.configure(window.geometry());
+            let _unused = window.configure(window.geometry());
             return;
         }
 
@@ -295,7 +295,7 @@ impl XwmHandler for Rwl {
         if let Some(h) = h {
             geo.size.h = i32::try_from(h).unwrap_or(geo.size.h);
         }
-        let _ = window.configure(geo);
+        let _unused = window.configure(geo);
 
         // Actually move the window to where the client asked (dwl does this in
         // configurex11 → resize).  Without relocating it in the space and recording

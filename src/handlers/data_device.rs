@@ -17,7 +17,7 @@ use crate::state::Rwl;
 
 impl FractionalScaleHandler for Rwl {
     fn new_fractional_scale(&mut self, surface: WlSurface) {
-        let _ = surface;
+        let _unused = surface;
     }
 }
 
@@ -83,6 +83,6 @@ impl DmabufHandler for Rwl {
         _dmabuf: smithay::backend::allocator::dmabuf::Dmabuf,
         notifier: ImportNotifier,
     ) {
-        let _ = notifier.successful::<Self>();
+        let _unused = notifier.successful::<Self>();
     }
 }

@@ -6,7 +6,7 @@
 /// Parse `startup_cmds = { ... }` from Lua globals.
 ///
 /// Each entry may be a bare string `"cmd"` or an argv table `{ "cmd", "arg" }`.
-pub fn lua_parse(t: &mlua::Table) -> Vec<Vec<String>> {
+pub(crate) fn lua_parse(t: &mlua::Table) -> Vec<Vec<String>> {
     let Ok(arr) = t.get::<mlua::Table>("startup_cmds") else { return Vec::new() };
     let len = arr.raw_len();
     (1..=len)

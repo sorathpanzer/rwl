@@ -5,12 +5,12 @@ use smithay::reexports::wayland_server::protocol::wl_output::Transform;
 // ─── colour ──────────────────────────────────────────────────────────────────
 
 /// RGBA colour as four `f32` values in `[0.0, 1.0]`.
-pub type Color = [f32; 4];
+pub(crate) type Color = [f32; 4];
 
 /// Build a [`Color`] from a packed `0xRRGGBBAA` hex integer.
 #[must_use]
 #[allow(clippy::cast_possible_truncation)]
-pub fn hex_color(hex: u32) -> Color {
+pub(crate) fn hex_color(hex: u32) -> Color {
     [
         f32::from((hex >> 24) as u8) / 255.0,
         f32::from((hex >> 16) as u8) / 255.0,
@@ -22,7 +22,7 @@ pub fn hex_color(hex: u32) -> Color {
 // ─── types ────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
-pub struct Rule {
+pub(crate) struct Rule {
     pub id:           Option<String>,
     pub title:        Option<String>,
     pub tags:         u32,
@@ -36,7 +36,7 @@ pub struct Rule {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LayoutKind {
+pub(crate) enum LayoutKind {
     #[cfg(feature = "tile")]
     Tile,
     #[cfg(feature = "monocle")]
@@ -67,7 +67,7 @@ pub enum LayoutKind {
 /// enabled layout feature (tile → monocle → col → scroll → dwindle), or the
 /// built-in [`LayoutKind::Fallback`] when none is enabled.
 #[must_use]
-pub const fn default_layout_kind() -> LayoutKind {
+pub(crate) const fn default_layout_kind() -> LayoutKind {
     #[cfg(feature = "tile")]
     { LayoutKind::Tile }
     #[cfg(all(not(feature = "tile"), feature = "monocle"))]
@@ -113,14 +113,14 @@ pub const fn default_layout_kind() -> LayoutKind {
 }
 
 #[derive(Debug, Clone)]
-pub struct LayoutDef {
+pub(crate) struct LayoutDef {
     pub symbol: String,
     pub kind:   LayoutKind,
 }
 
 /// Variable-refresh-rate (adaptive sync, aka `FreeSync` / `G-Sync`) policy for an output.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum VrrMode {
+pub(crate) enum VrrMode {
     /// Never enable VRR (fixed refresh).
     #[default]
     Off,
@@ -132,7 +132,7 @@ pub enum VrrMode {
 }
 
 #[derive(Debug, Clone)]
-pub struct MonitorRule {
+pub(crate) struct MonitorRule {
     pub name:       Option<String>,
     pub mfact:      f64,
     pub nmaster:    i32,
@@ -155,7 +155,7 @@ impl Default for MonitorRule {
 }
 
 #[derive(Debug, Clone)]
-pub struct XkbRules {
+pub(crate) struct XkbRules {
     pub rules:   Option<String>,
     pub model:   Option<String>,
     pub layout:  Option<String>,
@@ -164,7 +164,7 @@ pub struct XkbRules {
 }
 
 #[derive(Debug, Clone)]
-pub enum Action {
+pub(crate) enum Action {
     Spawn(Vec<String>),
     FocusStack(i32),
     IncNmaster(i32),
@@ -314,20 +314,20 @@ impl Action {
 
 #[cfg(feature = "scratchpad")]
 #[derive(Debug, Clone)]
-pub struct ScratchCmd {
+pub(crate) struct ScratchCmd {
     pub key: char,
     pub cmd: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
-pub struct KeyBind {
+pub(crate) struct KeyBind {
     pub mods:   u32,
     pub keysym: u32,
     pub action: Action,
 }
 
 #[derive(Debug, Clone)]
-pub struct ButtonBind {
+pub(crate) struct ButtonBind {
     pub mods:   u32,
     pub button: u32,
     pub action: Action,
@@ -340,7 +340,7 @@ pub struct ButtonBind {
 /// ([`ByCount`](PertagRule::ByCount)).
 #[cfg(feature = "pertag-layouts")]
 #[derive(Debug, Clone)]
-pub enum PertagRule {
+pub(crate) enum PertagRule {
     /// One layout index, used regardless of window count.
     Fixed(usize),
     /// Layout indices chosen by tiled-window count.  Element `i` (0-based) is
@@ -352,7 +352,7 @@ pub enum PertagRule {
 
 /// Stable name for a layout kind (used by the pertag-layouts feature).
 #[cfg(feature = "pertag-layouts")]
-pub const fn layout_kind_name(kind: LayoutKind) -> &'static str {
+pub(crate) const fn layout_kind_name(kind: LayoutKind) -> &'static str {
     match kind {
         #[cfg(feature = "tile")]
         LayoutKind::Tile    => "tile",

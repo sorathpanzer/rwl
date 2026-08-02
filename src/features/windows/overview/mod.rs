@@ -157,7 +157,7 @@ impl std::fmt::Debug for OverviewState {
 // ---------------------------------------------------------------------------
 
 /// Open the overview (or begin closing it if already open).
-pub fn toggle(state: &mut Rwl, all_tags: bool) {
+pub(crate) fn toggle(state: &mut Rwl, all_tags: bool) {
     if state.overview.is_some() {
         begin_close(state, Selection::Cancel);
         return;
@@ -308,7 +308,7 @@ fn begin_close(state: &mut Rwl, sel: Selection) {
 /// compositor keybind is pressed while the overview is open so the action
 /// applies to the real layout without waiting for the zoom-out to finish.
 /// Focus is left untouched (the overview never changed it).
-pub fn force_close(state: &mut Rwl) {
+pub(crate) fn force_close(state: &mut Rwl) {
     if state.overview.take().is_some() {
         state.schedule_render();
     }
@@ -317,7 +317,7 @@ pub fn force_close(state: &mut Rwl) {
 /// Close the window of the currently selected thumbnail **without** leaving the
 /// overview (the grid rebuilds via [`on_window_closed`] once the client exits).
 /// Does nothing when no thumbnail is selected.
-pub fn kill_selected(state: &Rwl) {
+pub(crate) fn kill_selected(state: &Rwl) {
     let window = state
         .overview
         .as_ref()
@@ -333,7 +333,7 @@ pub fn kill_selected(state: &Rwl) {
 /// Rebuild the overview grid after a window closed while it was open (from the
 /// overview's own kill, or the app closing itself). Keeps the selection near
 /// where it was; closes the overview if no windows remain.
-pub fn on_window_closed(state: &mut Rwl) {
+pub(crate) fn on_window_closed(state: &mut Rwl) {
     let Some(ov) = state.overview.as_ref() else { return };
     let (all_tags, output, prev_selected) = (ov.all_tags, ov.output.clone(), ov.selected);
 
@@ -373,7 +373,7 @@ pub fn on_window_closed(state: &mut Rwl) {
 /// `schedule_render`). When a close animation completes this consumes the
 /// session and applies the pending selection (focus / tag switch).
 #[allow(clippy::cast_precision_loss)]
-pub fn advance(state: &mut Rwl) -> bool {
+pub(crate) fn advance(state: &mut Rwl) -> bool {
     let (done, closing) = {
         let Some(ov) = state.overview.as_mut() else { return false };
         let duration = crate::config::get().overview.anim_ms.max(1) as f32;
@@ -432,7 +432,7 @@ fn finish_close(state: &mut Rwl) {
 // ---------------------------------------------------------------------------
 
 /// Handle a keysym while the overview is active. All keys are swallowed.
-pub fn handle_key(state: &mut Rwl, keysym: u32) {
+pub(crate) fn handle_key(state: &mut Rwl, keysym: u32) {
     const ESCAPE: u32 = 0xff1b;
     const BACKSPACE: u32 = 0xff08;
     const RETURN: u32 = 0xff0d;
@@ -543,7 +543,7 @@ fn select_best(state: &mut Rwl) {
 
 /// Update the hovered cell from a pointer position (logical, global).
 #[allow(clippy::cast_possible_truncation)]
-pub fn handle_pointer_motion(state: &mut Rwl, loc: Point<f64, Logical>) {
+pub(crate) fn handle_pointer_motion(state: &mut Rwl, loc: Point<f64, Logical>) {
     let changed = {
         let Some(ov) = state.overview.as_mut() else { return };
         let loc_i = Point::from((loc.x.round() as i32, loc.y.round() as i32));
@@ -563,7 +563,7 @@ pub fn handle_pointer_motion(state: &mut Rwl, loc: Point<f64, Logical>) {
 
 /// Handle a pointer click at `loc` (logical, global): select the cell under it.
 #[allow(clippy::cast_possible_truncation)]
-pub fn handle_pointer_click(state: &mut Rwl, loc: Point<f64, Logical>) {
+pub(crate) fn handle_pointer_click(state: &mut Rwl, loc: Point<f64, Logical>) {
     let picked = state.overview.as_ref().and_then(|ov| {
         let loc_i = Point::from((loc.x.round() as i32, loc.y.round() as i32));
         ov.cells
@@ -603,7 +603,7 @@ fn lerp_rect(a: Rectangle<i32, Logical>, b: Rectangle<i32, Logical>, t: f32) -> 
     clippy::too_many_lines,
 )]
 #[cfg_attr(not(feature = "rounded-corners"), allow(unused_variables))]
-pub fn overview_elements(
+pub(crate) fn overview_elements(
     renderer: &mut GlesRenderer,
     ov: &OverviewState,
     space: &smithay::desktop::space::Space<Window>,
@@ -662,7 +662,7 @@ pub fn overview_elements(
             #[cfg(feature = "rounded-corners")]
             {
                 if let Some(r) = round.as_ref() {
-                    if let Some(elem) = crate::render::rounded_thumb_ring(renderer, &cell.ring_ids[0], rect, ring_color, ring_px, r, output_h_phys, scale, ov.frame_counter) {
+                    if let Some(elem) = crate::features::rounded_corners::rounded_thumb_ring(renderer, &cell.ring_ids[0], rect, ring_color, ring_px, r, output_h_phys, scale, ov.frame_counter) {
                         elems.push(RwlRenderElement::RoundedBorder(elem));
                     }
                 } else {
@@ -698,9 +698,9 @@ pub fn overview_elements(
         #[cfg(feature = "rounded-corners")]
         {
             if let Some(r) = round.as_ref() {
-                let (cx, cy, cw, ch) = crate::render::thumb_corners(rect, r.y_inverted, output_h_phys, scale);
+                let (cx, cy, cw, ch) = crate::features::rounded_corners::thumb_corners(rect, r.y_inverted, output_h_phys, scale);
                 elems.extend(thumbs.map(|inner| {
-                    RwlRenderElement::RoundedOverview(crate::render::RoundedThumbElem {
+                    RwlRenderElement::RoundedOverview(crate::features::rounded_corners::RoundedThumbElem {
                         inner,
                         corner_x: cx,
                         corner_y: cy,

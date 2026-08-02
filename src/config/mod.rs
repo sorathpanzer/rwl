@@ -14,18 +14,18 @@
 mod keybinds;
 mod lua;
 mod settings;
-mod types;
+pub mod types;
 
-pub use types::*;
+pub(crate) use types::*;
 
 // Feature settings types live with their features; re-export them here so the
 // rest of the config module (and `crate::config::*` consumers) can name them.
 #[cfg(feature = "overview")]
-pub use crate::features::overview::OverviewSettings;
+pub(crate) use crate::features::overview::OverviewSettings;
 #[cfg(feature = "pip")]
-pub use crate::features::pip::PipSettings;
+pub(crate) use crate::features::pip::PipSettings;
 #[cfg(feature = "bar")]
-pub use crate::features::bar::BarSettings;
+use crate::features::bar::BarSettings;
 
 use std::path::PathBuf;
 use std::sync::{OnceLock, RwLock, RwLockReadGuard};
@@ -37,7 +37,7 @@ use types::{default_auto_spawn, default_layouts, default_monitor_rules, default_
 
 // ─── Config struct ────────────────────────────────────────────────────────────
 
-pub struct Config {
+pub(crate) struct Config {
     // Appearance
     pub mouse_focus:               bool,
     #[cfg(feature = "warp")]
@@ -251,18 +251,18 @@ static CONFIG: OnceLock<RwLock<Config>> = OnceLock::new();
 static CONFIG_ERROR: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
 /// Modifier bitmask for the super / logo key (must match `mods_to_bits`).
-pub const MODKEY: u32 = 1 << 6;
+pub(crate) const MODKEY: u32 = 1 << 6;
 
 /// Sentinel keysym for the mod-tap gesture, produced by an empty `key = ""` in a
 /// keybind. Equals XKB `NoSymbol` (0), which real key events never match in the
 /// keybinding filter (they are forwarded early), so this only ever fires via the
 /// tap-modkey handler.
-pub const MOD_TAP_KEYSYM: u32 = 0;
+pub(crate) const MOD_TAP_KEYSYM: u32 = 0;
 
 /// Return the last config error string, if any.  `None` means the config
 /// loaded cleanly (or no config file was found).  Cleared on each successful
 /// load so callers always see the current state.
-pub fn config_error() -> Option<String> {
+pub(crate) fn config_error() -> Option<String> {
     CONFIG_ERROR.lock().ok()?.clone()
 }
 
@@ -273,13 +273,13 @@ fn config_lock() -> &'static RwLock<Config> {
 
 /// Return a read guard on the compositor configuration.
 #[inline]
-pub fn get() -> RwLockReadGuard<'static, Config> {
+pub(crate) fn get() -> RwLockReadGuard<'static, Config> {
     config_lock().read().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// Load configuration from `~/.config/rwl/config.lua`.
 /// Falls back to compiled-in defaults on any error.
-pub fn init() {
+pub(crate) fn init() {
     let cfg = load_config();
     if let Ok(mut w) = config_lock().write() {
         *w = cfg;
@@ -288,7 +288,7 @@ pub fn init() {
 
 /// Reload configuration from `~/.config/rwl/config.lua` at runtime.
 /// Falls back to compiled-in defaults on any error.
-pub fn reload() {
+pub(crate) fn reload() {
     let cfg = load_config();
     if let Ok(mut w) = config_lock().write() {
         *w = cfg;
@@ -340,7 +340,7 @@ fn load_config() -> Config {
 
 /// Bitmask covering all tags (computed from `tag_count`).
 #[inline]
-pub fn tag_mask() -> u32 {
+pub(crate) fn tag_mask() -> u32 {
     (1 << get().tag_count) - 1
 }
 

@@ -33,7 +33,7 @@ use smithay::utils::{Logical, Physical, Point, Rectangle, Size, Transform};
 
 /// How the wallpaper image is fitted to each output.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum WallpaperMode {
+pub(crate) enum WallpaperMode {
     /// Scale to cover the whole output, cropping the overflow. Preserves aspect.
     #[default]
     Fill,
@@ -80,7 +80,7 @@ static OVERRIDE: RwLock<Option<Setting>> = RwLock::new(None);
 /// value this is **not** cleared by a config reload, so a hook-driven / per-tag
 /// wallpaper stays put when the Lua config is re-read. A `None` path clears the
 /// wallpaper; a `None` mode keeps the currently effective fit mode.
-pub fn set_override(path: Option<String>, mode: Option<WallpaperMode>) {
+pub(crate) fn set_override(path: Option<String>, mode: Option<WallpaperMode>) {
     let Ok(mut guard) = OVERRIDE.write() else { return };
     let cur_mode = guard
         .as_ref()
@@ -126,7 +126,7 @@ fn configured_paths() -> Vec<String> {
 /// Decode and GPU-warm every wallpaper named in the config, on background
 /// threads. Called at startup and after a config reload so switching to any tag
 /// is instant — no per-config Lua `preload` calls required. Idempotent.
-pub fn preload_configured() {
+pub(crate) fn preload_configured() {
     for path in configured_paths() {
         request_decode(path);
     }
@@ -136,7 +136,7 @@ pub fn preload_configured() {
 /// path the user has since fixed is retried, then preload the (possibly new) set
 /// of configured wallpapers. Successfully-decoded images are kept so an unchanged
 /// wallpaper is not needlessly re-decoded.
-pub fn on_reload() {
+pub(crate) fn on_reload() {
     FAILED.with(|f| f.borrow_mut().clear());
     preload_configured();
 }
@@ -164,7 +164,7 @@ thread_local! {
 /// Wire up the background wallpaper decoder: a calloop channel whose decoded
 /// results are turned into cached buffers on the render thread. Call once at
 /// startup, before any wallpaper is requested.
-pub fn init_decoder(handle: &LoopHandle<'static, crate::state::Rwl>) {
+pub(crate) fn init_decoder(handle: &LoopHandle<'static, crate::state::Rwl>) {
     let (tx, rx) = channel::<Decoded>();
     RESULT_TX.with(|c| *c.borrow_mut() = Some(tx));
     let inserted = handle.insert_source(rx, |event, (), state| {
@@ -204,7 +204,7 @@ pub fn init_decoder(handle: &LoopHandle<'static, crate::state::Rwl>) {
 /// `import_texture`, which uploads and caches the texture keyed by renderer.
 fn warm_texture(state: &mut crate::state::Rwl, buffer: &MemoryRenderBuffer) {
     let warm = |renderer: &mut GlesRenderer| {
-        let _ = MemoryRenderBufferRenderElement::from_buffer(
+        let _unused = MemoryRenderBufferRenderElement::from_buffer(
             renderer, (0.0, 0.0), buffer, None, None, None, Kind::Unspecified,
         );
     };
@@ -224,7 +224,7 @@ fn warm_texture(state: &mut crate::state::Rwl, buffer: &MemoryRenderBuffer) {
 /// image is already cached, already being decoded, or previously failed, or if
 /// [`init_decoder`] has not run yet. Lets `on_startup` preload every per-tag
 /// wallpaper so the first switch to each tag is instant.
-pub fn request_decode(path: String) {
+pub(crate) fn request_decode(path: String) {
     if CACHE.with(|c| c.borrow().iter().any(|l| l.path == path))
         || PENDING.with(|p| p.borrow().contains(&path))
         || FAILED.with(|f| f.borrow().contains(&path))
@@ -245,7 +245,7 @@ pub fn request_decode(path: String) {
                     tracing::debug!(
                         "wallpaper: decoded {path} in {} ms ({w}x{h})", t.elapsed().as_millis()
                     );
-                    let _ = tx.send(Decoded { path, rgba: img.into_raw(), size: (w, h) });
+                    let _unused = tx.send(Decoded { path, rgba: img.into_raw(), size: (w, h) });
                 }
             }
             Err(e) => tracing::warn!("wallpaper: preload failed for {resolved}: {e}"),
@@ -338,7 +338,7 @@ fn decode(path: &str) -> Option<Loaded> {
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
 )]
-pub fn elements(
+pub(crate) fn elements(
     renderer: &mut GlesRenderer,
     output: &Output,
     scale: f64,

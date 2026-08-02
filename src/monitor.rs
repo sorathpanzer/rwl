@@ -11,7 +11,7 @@ use crate::config::{LayoutKind, MonitorRule};
 
 /// All compositor-side state for one output.
 #[derive(Debug)]
-pub struct Monitor {
+pub(crate) struct Monitor {
     /// The underlying smithay output handle.
     pub output: Output,
 
@@ -64,7 +64,7 @@ pub struct Monitor {
 /// re-applied by [`Monitor::restore`] when the same output reappears. Stored in
 /// [`crate::state::Rwl::monitor_memory`], keyed by output (connector) name.
 #[derive(Debug, Clone)]
-pub struct MonitorMemory {
+pub(crate) struct MonitorMemory {
     /// Master area fraction.
     pub mfact: f64,
     /// Number of master windows.
@@ -287,6 +287,6 @@ fn matching_rule(name: &str) -> MonitorRule {
 /// Public wrapper so `handlers/output.rs` can apply the rule for a given
 /// smithay [`Output`] without duplicating the matching logic.
 #[must_use]
-pub fn matching_rule_for_output(output: &Output) -> MonitorRule {
+pub(crate) fn matching_rule_for_output(output: &Output) -> MonitorRule {
     matching_rule(output.name().as_str())
 }

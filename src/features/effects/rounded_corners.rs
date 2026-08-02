@@ -190,7 +190,7 @@ fn make_border_dummy_buffer() -> MemoryRenderBuffer {
 ///
 /// Backends store a single `rounded: RoundedCornerState` field instead of
 /// three separate shader/buffer fields.
-pub struct RoundedCornerState {
+pub(crate) struct RoundedCornerState {
     /// Pre-compiled window-corner clipping shader (`None` = compile failed).
     pub corner_shader:       Option<GlesTexProgram>,
     /// Pre-compiled border-ring shader (`None` = compile failed).
@@ -223,7 +223,7 @@ impl std::fmt::Debug for RoundedCornerState {
 // ─── Context structs ──────────────────────────────────────────────────────────
 
 /// Per-frame context for `rounded_window_elements`.
-pub struct RoundedWindowCtx<'a> {
+pub(crate) struct RoundedWindowCtx<'a> {
     /// Compiled corner-rounding texture shader.
     pub program:       &'a GlesTexProgram,
     /// Corner radius in logical pixels (from config).
@@ -233,7 +233,7 @@ pub struct RoundedWindowCtx<'a> {
 }
 
 /// Per-frame context for `rounded_border_elements`.
-pub struct RoundedBorderCtx<'a> {
+pub(crate) struct RoundedBorderCtx<'a> {
     /// Compiled border SDF shader.
     pub program:       &'a GlesTexProgram,
     /// 1×1 dummy buffer used to drive the shader element.
@@ -250,7 +250,7 @@ pub struct RoundedBorderCtx<'a> {
 /// During rendering it overrides the default texture program with the
 /// pre-compiled rounded-corner shader. Generic over the wrapped element so it
 /// can round both live window surfaces and scaled overview thumbnails.
-pub struct RoundedElem<E> {
+pub(crate) struct RoundedElem<E> {
     pub(crate) inner:    E,
     /// Window bottom-left X in physical pixels (`gl_FragCoord` origin).
     pub(crate) corner_x: f32,
@@ -266,9 +266,9 @@ pub struct RoundedElem<E> {
 }
 
 /// Rounded live window surface (the common case).
-pub type RoundedWindowElem = RoundedElem<WaylandSurfaceRenderElement<GlesRenderer>>;
+pub(crate) type RoundedWindowElem = RoundedElem<WaylandSurfaceRenderElement<GlesRenderer>>;
 /// Rounded overview thumbnail (a scaled/relocated/cropped window surface).
-pub type RoundedThumbElem = RoundedElem<crate::render::OverviewThumb>;
+pub(crate) type RoundedThumbElem = RoundedElem<crate::render::OverviewThumb>;
 
 impl<E> std::fmt::Debug for RoundedElem<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -336,7 +336,7 @@ impl<E: RenderElement<GlesRenderer>> RenderElement<GlesRenderer> for RoundedElem
 
 /// A render element that draws a solid-colour rounded rectangle ring around
 /// one window, replacing the four flat `SolidColorRenderElement` strips.
-pub struct RoundedBorderElem {
+pub(crate) struct RoundedBorderElem {
     pub(crate) id:           Id,
     pub(crate) commit:       CommitCounter,
     /// 1×1 dummy texture stretched to the outer border rect.
@@ -445,7 +445,7 @@ impl RenderElement<GlesRenderer> for RoundedBorderElem {
     clippy::cast_sign_loss,
     clippy::too_many_lines,
 )]
-pub fn rounded_border_elements(
+pub(crate) fn rounded_border_elements(
     renderer:      &mut GlesRenderer,
     space:         &Space<Window>,
     focused:       Option<&Window>,
@@ -589,7 +589,7 @@ pub fn rounded_border_elements(
 /// Build a [`crate::render::ThumbRound`] from the backend's compiled shaders
 /// (`None` when a shader failed to compile or `corner_radius == 0`).
 #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
-pub fn thumb_round(
+pub(crate) fn thumb_round(
     rounded: &RoundedCornerState,
     scale: f64,
     y_inverted: bool,
@@ -611,7 +611,7 @@ pub fn thumb_round(
 /// `rect`. `gl_FragCoord`'s origin is the framebuffer bottom-left, so Y is
 /// flipped unless the framebuffer is already Y-inverted.
 #[allow(clippy::cast_precision_loss)]
-pub fn thumb_corners(
+pub(crate) fn thumb_corners(
     rect: Rectangle<i32, Logical>,
     y_inverted: bool,
     output_h_phys: i32,
@@ -632,7 +632,7 @@ pub fn thumb_corners(
 /// thumbnail's corner radius), reusing the rounded-border shader. `id` is the
 /// stable damage id to attach to the ring.
 #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation, clippy::too_many_arguments)]
-pub fn rounded_thumb_ring(
+pub(crate) fn rounded_thumb_ring(
     renderer: &mut GlesRenderer,
     id: &Id,
     rect: Rectangle<i32, Logical>,

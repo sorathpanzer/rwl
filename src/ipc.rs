@@ -24,16 +24,16 @@ use crate::window::{window_visible_on, with_state};
 /// Writes to the startup-command pipe (`state.ipc_out`) when set,
 /// otherwise falls back to stdout.  Also fans out to any persistent
 /// `subscribe` connections registered in `state.ipc_subscribers`.
-pub fn print_status(state: &mut Rwl) {
+pub(crate) fn print_status(state: &mut Rwl) {
     let buf = format_status(state);
     if let Some(ref mut w) = state.ipc_out {
-        let _ = w.write_all(buf.as_bytes());
-        let _ = w.flush();
+        let _unused = w.write_all(buf.as_bytes());
+        let _unused = w.flush();
     } else {
         let stdout = std::io::stdout();
         let mut out = stdout.lock();
-        let _ = out.write_all(buf.as_bytes());
-        let _ = out.flush();
+        let _unused = out.write_all(buf.as_bytes());
+        let _unused = out.flush();
     }
     #[cfg(feature = "ipc")]
     broadcast_to_subscribers(state, &buf);
@@ -64,7 +64,7 @@ fn broadcast_to_subscribers(state: &mut Rwl, text: &str) {
     });
 }
 
-pub fn format_status(state: &Rwl) -> String {
+pub(crate) fn format_status(state: &Rwl) -> String {
     let mut buf = String::new();
     let n_mons = state.monitors.len();
     let tag_mask = crate::config::tag_mask();

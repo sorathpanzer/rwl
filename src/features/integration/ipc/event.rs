@@ -73,7 +73,7 @@ fn window_obj(state: &Rwl, w: &Window, focused: Option<&Window>) -> String {
 
 /// Render the full window list as a JSON array (the `clients` query response).
 #[must_use]
-pub fn clients_json(state: &Rwl) -> String {
+pub(crate) fn clients_json(state: &Rwl) -> String {
     let focused = state.focused_window();
     let mut out = String::from("[");
     for (i, w) in state.windows.iter().enumerate() {
@@ -107,7 +107,7 @@ fn fan_out(state: &mut Rwl, kind: &str, line: &str) {
 }
 
 /// Emit a `window` event. `action` is `"open"` or `"close"`.
-pub fn window(state: &mut Rwl, action: &str, w: &Window) {
+pub(crate) fn window(state: &mut Rwl, action: &str, w: &Window) {
     if state.event_subscribers.is_empty() {
         return;
     }
@@ -117,7 +117,7 @@ pub fn window(state: &mut Rwl, action: &str, w: &Window) {
 }
 
 /// Emit a `title` event for a window whose title just changed.
-pub fn title(state: &mut Rwl, w: &Window) {
+pub(crate) fn title(state: &mut Rwl, w: &Window) {
     if state.event_subscribers.is_empty() {
         return;
     }
@@ -128,7 +128,7 @@ pub fn title(state: &mut Rwl, w: &Window) {
 
 /// Emit a `focus` event. `w` is the newly focused window, or `None` when focus
 /// was cleared.
-pub fn focus(state: &mut Rwl, w: Option<&Window>) {
+pub(crate) fn focus(state: &mut Rwl, w: Option<&Window>) {
     if state.event_subscribers.is_empty() {
         return;
     }
@@ -143,7 +143,7 @@ pub fn focus(state: &mut Rwl, w: Option<&Window>) {
 }
 
 /// Emit a `tag` event describing a monitor's selected/occupied tag bitmasks.
-pub fn tag(state: &mut Rwl, mon_idx: usize) {
+pub(crate) fn tag(state: &mut Rwl, mon_idx: usize) {
     if state.event_subscribers.is_empty() {
         return;
     }
@@ -201,7 +201,7 @@ fn layout_name(idx: usize) -> String {
 /// Emit a `layout` event when a monitor's active layout changes. `old_idx` /
 /// `new_idx` are indices into the configured `layouts` list; the emitted names
 /// are the layout symbol names (matching the `on_layout_change` hook).
-pub fn layout(state: &mut Rwl, mon_idx: usize, old_idx: usize, new_idx: usize) {
+pub(crate) fn layout(state: &mut Rwl, mon_idx: usize, old_idx: usize, new_idx: usize) {
     if state.event_subscribers.is_empty() {
         return;
     }
@@ -215,7 +215,7 @@ pub fn layout(state: &mut Rwl, mon_idx: usize, old_idx: usize, new_idx: usize) {
 
 /// Emit a `fullscreen` event for a window whose fullscreen state just changed.
 /// The window object's `fullscreen` field carries the new state.
-pub fn fullscreen(state: &mut Rwl, w: &Window) {
+pub(crate) fn fullscreen(state: &mut Rwl, w: &Window) {
     if state.event_subscribers.is_empty() {
         return;
     }
@@ -226,7 +226,7 @@ pub fn fullscreen(state: &mut Rwl, w: &Window) {
 
 /// Emit a `monitor` event. `action` is `"add"` or `"remove"`; `name` is the
 /// connector/output name.
-pub fn monitor(state: &mut Rwl, action: &str, name: &str) {
+pub(crate) fn monitor(state: &mut Rwl, action: &str, name: &str) {
     if state.event_subscribers.is_empty() {
         return;
     }
@@ -238,7 +238,7 @@ pub fn monitor(state: &mut Rwl, action: &str, name: &str) {
 }
 
 /// Emit an `urgency` event for a window that just raised an urgency hint.
-pub fn urgency(state: &mut Rwl, w: &Window) {
+pub(crate) fn urgency(state: &mut Rwl, w: &Window) {
     if state.event_subscribers.is_empty() {
         return;
     }

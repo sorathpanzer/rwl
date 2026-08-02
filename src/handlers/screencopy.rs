@@ -35,7 +35,7 @@ use crate::state::Rwl;
 // ---------------------------------------------------------------------------
 
 /// User data for the `zwlr_screencopy_manager_v1` global and bound resource.
-pub struct ScreencopyManagerData;
+pub(crate) struct ScreencopyManagerData;
 
 impl GlobalDispatch2<ZwlrScreencopyManagerV1, Rwl> for ScreencopyManagerData {
     fn bind(
@@ -141,7 +141,7 @@ struct CaptureInfo {
 }
 
 /// User data for each `zwlr_screencopy_frame_v1` object.
-pub struct ScreencopyFrameData {
+pub(crate) struct ScreencopyFrameData {
     /// `None` when the output was invalid at capture time.
     capture: Option<CaptureInfo>,
     /// A frame object accepts exactly one `copy` / `copy_with_damage`.  Set on
@@ -216,7 +216,7 @@ impl Dispatch2<ZwlrScreencopyFrameV1, Rwl> for ScreencopyFrameData {
 // ---------------------------------------------------------------------------
 
 /// A screencopy frame that is waiting for the next render pass to be served.
-pub struct PendingFrame {
+pub(crate) struct PendingFrame {
     /// The protocol object used to send `ready`/`failed` events.
     pub frame: ZwlrScreencopyFrameV1,
     /// The SHM buffer the client provided.
@@ -242,7 +242,7 @@ pub struct PendingFrame {
     clippy::cast_possible_truncation,
     clippy::cast_possible_wrap,
 )]
-pub fn submit_screencopy_frames(
+pub(crate) fn submit_screencopy_frames(
     renderer: &mut GlesRenderer,
     target: &GlesTarget<'_>,
     output: &Output,
@@ -263,7 +263,7 @@ pub fn submit_screencopy_frames(
 
 /// Fail all pending screencopy frames targeting `output` (used by backends
 /// that don't support framebuffer readback, e.g. udev/DRM for now).
-pub fn fail_screencopy_frames(output: &Output, pending: &mut Vec<PendingFrame>) {
+pub(crate) fn fail_screencopy_frames(output: &Output, pending: &mut Vec<PendingFrame>) {
     let mut i = 0;
     while i < pending.len() {
         if &pending[i].output == output {

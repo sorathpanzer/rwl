@@ -38,7 +38,7 @@ fn col_window_idx(state: &Rwl, window: &Window, mon_idx: usize) -> Option<usize>
 // ---------------------------------------------------------------------------
 
 /// Begin an interactive move of `window`.
-pub fn start_move(state: &mut Rwl, window: Window) {
+pub(crate) fn start_move(state: &mut Rwl, window: Window) {
     let Some(pointer) = state.pointer.clone() else {
         return;
     };
@@ -62,7 +62,7 @@ pub fn start_move(state: &mut Rwl, window: Window) {
 }
 
 /// Begin an interactive resize of `window`.
-pub fn start_resize(state: &mut Rwl, window: Window, _edges: ResizeEdge) {
+pub(crate) fn start_resize(state: &mut Rwl, window: Window, _edges: ResizeEdge) {
     let Some(pointer) = state.pointer.clone() else {
         return;
     };
@@ -130,7 +130,7 @@ pub fn start_resize(state: &mut Rwl, window: Window, _edges: ResizeEdge) {
 
 /// Update position of the grabbed window during a move.
 #[allow(clippy::cast_possible_truncation)]
-pub fn handle_move(state: &mut Rwl, new_pointer_loc: Point<f64, Logical>) {
+pub(crate) fn handle_move(state: &mut Rwl, new_pointer_loc: Point<f64, Logical>) {
     let (Some(window), Some(start), Some(orig_geom)) = (
         state.grabbed_window.clone(),
         state.grab_start,
@@ -147,7 +147,7 @@ pub fn handle_move(state: &mut Rwl, new_pointer_loc: Point<f64, Logical>) {
 
 /// Update size of the grabbed window during a resize.
 #[allow(clippy::cast_possible_truncation, clippy::too_many_lines)]
-pub fn handle_resize(state: &mut Rwl, new_pointer_loc: Point<f64, Logical>) {
+pub(crate) fn handle_resize(state: &mut Rwl, new_pointer_loc: Point<f64, Logical>) {
     let (Some(window), Some(start), Some(orig_geom)) = (
         state.grabbed_window.clone(),
         state.grab_start,
@@ -320,7 +320,7 @@ fn apply_cfact(state: &Rwl, window: &Window, orig_len: i32, delta: f64) {
 }
 
 /// End any active grab.
-pub fn end_grab(state: &mut Rwl) {
+pub(crate) fn end_grab(state: &mut Rwl) {
     // If a tiled window was temporarily floated for a move drag, restore it to
     // tiled on release so the drag does not permanently change the layout.
     let restore_tiled = matches!(state.cursor_mode, CursorMode::Move)

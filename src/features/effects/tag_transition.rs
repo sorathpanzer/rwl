@@ -17,7 +17,7 @@ use crate::window::{with_state, with_state_mut};
 /// `schedule_render` and `finalize_slide_outs` to keep the loop alive and to
 /// clean up completed slide-outs).
 #[allow(clippy::cast_precision_loss)]
-pub fn advance_tag_transitions(state: &crate::state::Rwl) -> bool {
+pub(crate) fn advance_tag_transitions(state: &crate::state::Rwl) -> bool {
     let (enabled, duration_ms) = {
         let cfg = crate::config::get();
         (cfg.tag_transition, cfg.tag_transition_ms)

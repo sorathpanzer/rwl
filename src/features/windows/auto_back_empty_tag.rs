@@ -7,7 +7,7 @@ use crate::window::with_state;
 ///
 /// If `mon_idx`'s current view is now empty, switches to the most recently
 /// occupied tag (history → previous slot → any tag with windows).
-pub fn on_window_closed(
+pub(crate) fn on_window_closed(
     state: &mut crate::state::Rwl,
     mon_idx: usize,
     current_tags: u32,

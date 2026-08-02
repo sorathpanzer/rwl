@@ -26,7 +26,7 @@ use crate::state::Rwl;
 
 /// User data for both the `zwlr_gamma_control_manager_v1` global and the
 /// bound manager resource.
-pub struct GammaManagerData;
+pub(crate) struct GammaManagerData;
 
 impl GlobalDispatch2<ZwlrGammaControlManagerV1, Rwl> for GammaManagerData {
     fn bind(
@@ -91,7 +91,7 @@ impl Dispatch2<ZwlrGammaControlManagerV1, Rwl> for GammaManagerData {
 // ---------------------------------------------------------------------------
 
 /// User data for a `zwlr_gamma_control_v1` object.
-pub struct GammaControlData {
+pub(crate) struct GammaControlData {
     output: Option<Output>,
 }
 
@@ -245,7 +245,7 @@ fn restore_gamma(state: &mut Rwl, output: &Output) {
                         }
                     })
                     .collect();
-                let _ = device.drm.set_gamma(*crtc, &ramp, &ramp, &ramp);
+                let _unused = device.drm.set_gamma(*crtc, &ramp, &ramp, &ramp);
                 return;
             }
         }
@@ -254,7 +254,7 @@ fn restore_gamma(state: &mut Rwl, output: &Output) {
 
 /// Re-apply all stored gamma ramps after a suspend/resume cycle wipes the
 /// hardware LUT.  Called from `open_pending_devices()` after DRM re-activation.
-pub fn reapply_gamma_ramps(state: &mut Rwl) {
+pub(crate) fn reapply_gamma_ramps(state: &mut Rwl) {
     use smithay::reexports::drm::control::Device as _;
 
     let Some(crate::backend::BackendData::Udev(ref mut udev)) = state.backend else {
@@ -269,7 +269,7 @@ pub fn reapply_gamma_ramps(state: &mut Rwl) {
                 let red   = &values[..n];
                 let green = &values[n..2 * n];
                 let blue  = &values[2 * n..];
-                let _ = device.drm.set_gamma(*crtc, red, green, blue);
+                let _unused = device.drm.set_gamma(*crtc, red, green, blue);
             }
         }
     }
@@ -280,4 +280,4 @@ pub fn reapply_gamma_ramps(state: &mut Rwl) {
 // ---------------------------------------------------------------------------
 
 /// Type alias for the per-output gamma-control tracking map.
-pub type GammaControlMap = HashMap<Output, ZwlrGammaControlV1>;
+pub(crate) type GammaControlMap = HashMap<Output, ZwlrGammaControlV1>;

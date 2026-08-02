@@ -63,7 +63,7 @@ use crate::window::{
 
 /// What the pointer is currently doing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CursorMode {
+pub(crate) enum CursorMode {
     /// Normal pointer activity.
     Normal,
     /// Button held down.
@@ -80,7 +80,7 @@ pub enum CursorMode {
 
 /// Compositor state stored per Wayland client connection.
 #[derive(Default)]
-pub struct ClientState {
+pub(crate) struct ClientState {
     /// Per-client compositor state (required by smithay).
     pub compositor_state: CompositorClientState,
 }
@@ -124,7 +124,7 @@ struct ProtocolGlobals {
 
 /// The top-level compositor state, passed through the calloop event loop.
 #[allow(clippy::struct_excessive_bools)]
-pub struct Rwl {
+pub(crate) struct Rwl {
     // ---- event-loop plumbing ----
     /// Handle to the calloop event loop for inserting new sources.
     pub loop_handle: LoopHandle<'static, Self>,
@@ -1618,13 +1618,13 @@ impl Rwl {
             #[cfg(feature = "xwayland")]
             if let Some(x11) = w.x11_surface() {
                 if x11.is_fullscreen() {
-                    let _ = x11.set_fullscreen(false);
+                    let _unused = x11.set_fullscreen(false);
                 }
                 if geom_changed || was_unmapped {
-                    let _ = x11.configure(*geom);
+                    let _unused = x11.configure(*geom);
                 }
                 if focus_changed || was_unmapped {
-                    let _ = x11.set_activated(is_focused);
+                    let _unused = x11.set_activated(is_focused);
                 }
             }
         }
@@ -1694,13 +1694,13 @@ impl Rwl {
                     with_state_mut(w, |s| s.last_focused = is_focused);
                 }
                 if x11.is_fullscreen() {
-                    let _ = x11.set_fullscreen(false);
+                    let _unused = x11.set_fullscreen(false);
                 }
                 if was_unmapped || x11.geometry().loc != loc {
-                    let _ = x11.configure(Rectangle::new(loc, x11.geometry().size));
+                    let _unused = x11.configure(Rectangle::new(loc, x11.geometry().size));
                 }
                 if focus_changed || was_unmapped {
-                    let _ = x11.set_activated(is_focused);
+                    let _unused = x11.set_activated(is_focused);
                 }
             }
         }
@@ -1744,13 +1744,13 @@ impl Rwl {
                     with_state_mut(w, |s| s.last_focused = is_focused);
                 }
                 if !x11.is_fullscreen() {
-                    let _ = x11.set_fullscreen(true);
+                    let _unused = x11.set_fullscreen(true);
                 }
                 if was_unmapped || x11.geometry() != fs_geom {
-                    let _ = x11.configure(fs_geom);
+                    let _unused = x11.configure(fs_geom);
                 }
                 if focus_changed || was_unmapped {
-                    let _ = x11.set_activated(is_focused);
+                    let _unused = x11.set_activated(is_focused);
                 }
             }
         }

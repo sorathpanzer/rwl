@@ -26,7 +26,7 @@ use crate::state::Rwl;
 // ---------------------------------------------------------------------------
 
 /// State for the winit (nested) backend.
-pub struct WinitData {
+pub(crate) struct WinitData {
     /// EGL-backed graphics backend (renderer + swap chain).
     pub gfx: WinitGraphicsBackend<GlesRenderer>,
     /// The single virtual output that maps to the host window.
@@ -50,7 +50,7 @@ pub struct WinitData {
 /// storing it, call `state.output_added(&winit_data.output)` to register the
 /// virtual monitor.
 #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
-pub fn init(
+pub(crate) fn init(
     loop_handle: &LoopHandle<'static, Rwl>,
     display_handle: &DisplayHandle,
 ) -> Result<WinitData> {
@@ -346,7 +346,7 @@ fn render_frame(data: &mut WinitData, state: &mut Rwl) -> bool {
                 let (window_elems, border_elems): (Vec<crate::render::RwlRenderElement>, Vec<crate::render::RwlRenderElement>) =
                     if overview_on {
                         #[cfg(feature = "rounded-corners")]
-                        let round = crate::render::thumb_round(&data.rounded, scale, false);
+                        let round = crate::features::rounded_corners::thumb_round(&data.rounded, scale, false);
                         #[cfg(not(feature = "rounded-corners"))]
                         let round = None;
                         let ov = state.overview.as_ref().map_or_else(Vec::new, |ov| {
@@ -446,7 +446,7 @@ fn render_frame(data: &mut WinitData, state: &mut Rwl) -> bool {
                         Vec::new()
                     } else {
                         #[cfg(feature = "rounded-corners")]
-                        let round = crate::render::thumb_round(&data.rounded, scale, false);
+                        let round = crate::features::rounded_corners::thumb_round(&data.rounded, scale, false);
                         #[cfg(not(feature = "rounded-corners"))]
                         let round = None;
                         state.pip.as_ref().map_or_else(Vec::new, |pip| {

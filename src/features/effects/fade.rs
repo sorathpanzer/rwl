@@ -12,7 +12,7 @@ use crate::window::with_state_mut;
 /// Returns `true` if any window is still mid-fade (caller should schedule
 /// another render to continue the animation at the display refresh rate).
 #[allow(clippy::cast_precision_loss)]
-pub fn advance_fades(state: &crate::state::Rwl) -> bool {
+pub(crate) fn advance_fades(state: &crate::state::Rwl) -> bool {
     let (fade_in_ms, fade_out_ms) = {
         let cfg = crate::config::get();
         (cfg.fade_in_ms, cfg.fade_out_ms)

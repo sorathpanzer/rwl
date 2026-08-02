@@ -92,7 +92,7 @@ fn parent_pid(pid: i32) -> Option<i32> {
 /// ancestor, honouring the terminal-guard and per-rule `no_swallow` exemptions.
 /// Pure query (no state change) so `apply_rules` can consult it *before* firing a
 /// `switch_to_tag` view jump the swallow would otherwise contradict.
-pub fn find_target(state: &Rwl, child: &Window, appid: &str, title: &str) -> Option<Window> {
+pub(crate) fn find_target(state: &Rwl, child: &Window, appid: &str, title: &str) -> Option<Window> {
     // Swallowing is opt-in; do nothing unless enabled in the config.
     if !crate::config::get().swallow_enabled {
         return None;
@@ -156,7 +156,7 @@ pub fn find_target(state: &Rwl, child: &Window, appid: &str, title: &str) -> Opt
 
 /// At map time (after rules), hide the terminal `child` descends from and let
 /// `child` take its slot. No-op if the child has no terminal ancestor.
-pub fn try_swallow(state: &Rwl, child: &Window) {
+pub(crate) fn try_swallow(state: &Rwl, child: &Window) {
     let (appid, title) = with_state(child, |s| {
         (
             s.last_appid.clone().unwrap_or_default(),
@@ -191,7 +191,7 @@ fn do_swallow(child: &Window, term: &Window) {
 /// is looking) and return it so the caller can focus it; if it *was* a hidden
 /// terminal that exited, drop the child's dangling link. The caller re-arranges
 /// afterwards.
-pub fn on_unmap(state: &Rwl, window: &Window) -> Option<Window> {
+pub(crate) fn on_unmap(state: &Rwl, window: &Window) -> Option<Window> {
     let restored = with_state(window, |s| s.swallowing.clone())
         .flatten()
         .filter(|term| state.windows.contains(term))

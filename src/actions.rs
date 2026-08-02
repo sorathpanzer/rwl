@@ -30,7 +30,7 @@ use crate::window::{
 /// single-threaded child and only calls async-signal-safe functions, so it is
 /// safe in this multithreaded process.
 #[allow(unsafe_code)]
-pub fn spawn_reparented(command: &mut std::process::Command) -> std::io::Result<()> {
+pub(crate) fn spawn_reparented(command: &mut std::process::Command) -> std::io::Result<()> {
     use std::os::unix::process::CommandExt as _;
     // SAFETY: the closure runs in the forked child before exec and calls only
     // the async-signal-safe `fork` / `_exit`.
@@ -42,7 +42,7 @@ pub fn spawn_reparented(command: &mut std::process::Command) -> std::io::Result<
         });
     }
     let mut child = command.spawn()?;
-    let _ = child.wait();
+    let _unused = child.wait();
     Ok(())
 }
 
@@ -610,7 +610,7 @@ impl Rwl {
             // support the protocol).  Without this, Mod+Q does nothing on X apps.
             #[cfg(feature = "xwayland")]
             if let Some(x11) = w.x11_surface() {
-                let _ = x11.close();
+                let _unused = x11.close();
             }
         }
     }

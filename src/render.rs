@@ -36,7 +36,7 @@ use smithay::wayland::compositor;
 
 // Re-export all rounded-corner types so backends only need `crate::render::*`.
 #[cfg(feature = "rounded-corners")]
-pub use crate::features::rounded_corners::*;
+use crate::features::rounded_corners::*;
 
 
 use crate::config::Color;
@@ -52,7 +52,7 @@ use crate::window::{with_state, window_is_floating};
 smithay::backend::renderer::element::render_elements! {
     /// Render element covering window surfaces, border decorations, and the
     /// software cursor, concrete over `GlesRenderer`.
-    pub RwlRenderElement<=GlesRenderer>;
+    pub(crate) RwlRenderElement<=GlesRenderer>;
     Space=SpaceRenderElements<GlesRenderer, WaylandSurfaceRenderElement<GlesRenderer>>,
     Border=SolidColorRenderElement,
     Cursor=WaylandSurfaceRenderElement<GlesRenderer>,
@@ -81,7 +81,7 @@ smithay::backend::renderer::element::render_elements! {
 /// Defined unconditionally (not gated on `overview`) because the
 /// `render_elements!` macro above always references it; only the overview
 /// feature actually constructs values of this type.
-pub type OverviewThumb = smithay::backend::renderer::element::utils::CropRenderElement<
+pub(crate) type OverviewThumb = smithay::backend::renderer::element::utils::CropRenderElement<
     smithay::backend::renderer::element::utils::RelocateRenderElement<
         smithay::backend::renderer::element::utils::RescaleRenderElement<
             WaylandSurfaceRenderElement<GlesRenderer>,
@@ -96,7 +96,7 @@ pub type OverviewThumb = smithay::backend::renderer::element::utils::CropRenderE
 /// compiled only when one of those features is enabled.
 #[cfg(any(feature = "overview", feature = "pip", feature = "rounded-corners"))]
 #[derive(Clone, Copy)]
-pub struct ThumbRound<'a> {
+pub(crate) struct ThumbRound<'a> {
     /// Texture shader that clips a thumbnail to a rounded rectangle.
     pub corner_shader: &'a smithay::backend::renderer::gles::GlesTexProgram,
     /// Shader that draws a rounded border ring.
@@ -152,7 +152,7 @@ impl std::fmt::Debug for RwlRenderElement {
     clippy::cast_possible_wrap,
     clippy::cast_sign_loss
 )]
-pub fn border_elements(
+pub(crate) fn border_elements(
     space: &Space<Window>,
     focused: Option<&Window>,
     scale: f64,
@@ -271,7 +271,7 @@ pub fn border_elements(
 /// the active client hid theirs and there is no host-cursor fallback (TTY).
 /// Pass `None` for `fallback` to suppress this behaviour (e.g. when the
 /// pointer is over a window that explicitly requested no cursor).
-pub fn cursor_elements(
+pub(crate) fn cursor_elements(
     renderer: &mut GlesRenderer,
     cursor_status: &CursorImageStatus,
     cursor_hidden: bool,
@@ -316,7 +316,7 @@ pub fn cursor_elements(
 /// Called each frame while a Wayland `DnD` operation is active.  The icon is
 /// rendered on top of everything else (inserted before cursor elements in the
 /// final element list) so it stays visually attached to the pointer.
-pub fn dnd_icon_elements(
+pub(crate) fn dnd_icon_elements(
     renderer: &mut GlesRenderer,
     dnd_icon: &WlSurface,
     pointer_loc: Point<f64, Logical>,
@@ -336,7 +336,7 @@ pub fn dnd_icon_elements(
 /// Pre-loaded xcursor image kept in [`crate::state::Rwl`] for use during TTY
 /// rendering.
 #[derive(Clone)]
-pub struct NamedCursorBuffer {
+pub(crate) struct NamedCursorBuffer {
     /// CPU-side render buffer containing the cursor ARGB pixels.
     pub buffer: MemoryRenderBuffer,
     /// Hotspot in physical pixels (origin = top-left of cursor image).
@@ -345,7 +345,7 @@ pub struct NamedCursorBuffer {
 
 /// Load the default arrow cursor.  Calls `load_cursor_icon` with `Default` and
 /// falls back to a built-in bitmap when no theme is found.
-pub fn load_default_cursor(theme: Option<&str>, size: u32) -> NamedCursorBuffer {
+pub(crate) fn load_default_cursor(theme: Option<&str>, size: u32) -> NamedCursorBuffer {
     let cursor_size = if size > 0 {
         size
     } else {
@@ -369,7 +369,7 @@ pub fn load_default_cursor(theme: Option<&str>, size: u32) -> NamedCursorBuffer 
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
 )]
-pub fn load_cursor_icon(
+pub(crate) fn load_cursor_icon(
     explicit_theme: Option<&str>,
     cursor_size: u32,
     icon: CursorIcon,
@@ -424,7 +424,7 @@ fn xcursor_from_theme(theme_name: &str, icon_names: &[&str], cursor_size: u32) -
 }
 
 /// Map a [`CursorIcon`] to the xcursor icon names to try, in priority order.
-pub const fn cursor_icon_xcursor_names(icon: CursorIcon) -> &'static [&'static str] {
+pub(crate) const fn cursor_icon_xcursor_names(icon: CursorIcon) -> &'static [&'static str] {
     match icon {
         CursorIcon::Default      => &["left_ptr", "default", "arrow"],
         CursorIcon::Pointer      => &["hand2", "pointer", "pointing_hand"],
@@ -519,7 +519,7 @@ fn builtin_arrow_cursor() -> NamedCursorBuffer {
 /// Returns an empty vec if the cursor is hidden or no xcursor was loaded.
 /// Only called from the TTY/udev backend; the winit backend relies on the
 /// host compositor's cursor for `CursorImageStatus::Named`.
-pub fn named_cursor_elements(
+pub(crate) fn named_cursor_elements(
     renderer: &mut GlesRenderer,
     named_cursor: Option<&NamedCursorBuffer>,
     pointer_loc: Point<f64, Logical>,
@@ -563,7 +563,7 @@ pub fn named_cursor_elements(
 ///
 /// `scale` is the output's fractional scale factor.
 #[allow(clippy::needless_collect)] // collect is required to drop the MutexGuard before re-entering the map
-pub fn layer_elements(
+pub(crate) fn layer_elements(
     renderer: &mut GlesRenderer,
     output: &Output,
     layer: WlrLayer,
@@ -607,7 +607,7 @@ pub fn layer_elements(
 /// the surface has not yet committed a buffer.  Called from both backends
 /// during each render pass; lock surfaces sit just below the cursor in the
 /// front-to-back element list.
-pub fn lock_surface_elements(
+pub(crate) fn lock_surface_elements(
     renderer: &mut GlesRenderer,
     lock_surfaces: &[(LockSurface, Output)],
     output: &Output,
@@ -647,7 +647,7 @@ fn lock_backdrop_id() -> Id {
 /// monitor hotplugged after locking, or a locker that only covered a subset of
 /// outputs) and in the interval before the locker commits an opaque buffer.
 #[must_use]
-pub fn lock_backdrop_element(output: &Output) -> Option<SolidColorRenderElement> {
+pub(crate) fn lock_backdrop_element(output: &Output) -> Option<SolidColorRenderElement> {
     let mode = output.current_mode()?;
     let size: Size<i32, Physical> = Size::from((mode.size.w, mode.size.h));
     if size.w <= 0 || size.h <= 0 {
@@ -684,7 +684,7 @@ pub fn lock_backdrop_element(output: &Output) -> Option<SolidColorRenderElement>
     clippy::cast_precision_loss,
     clippy::cast_sign_loss,
 )]
-pub fn window_surface_elements(
+pub(crate) fn window_surface_elements(
     renderer: &mut GlesRenderer,
     space: &Space<Window>,
     output: &Output,
@@ -821,7 +821,7 @@ pub fn window_surface_elements(
     clippy::cast_sign_loss,
     clippy::too_many_lines,
 )]
-pub fn rounded_window_elements(
+pub(crate) fn rounded_window_elements(
     renderer: &mut GlesRenderer,
     space: &Space<Window>,
     output: &Output,
@@ -1009,7 +1009,7 @@ pub fn rounded_window_elements(
 /// When the `fade` feature is enabled this calls [`window_surface_elements`]
 /// so per-window alpha is applied; otherwise it uses
 /// `Space::render_elements_for_region` which is slightly cheaper.
-pub fn build_window_elements_plain(
+pub(crate) fn build_window_elements_plain(
     renderer: &mut GlesRenderer,
     space: &Space<Window>,
     output: &Output,
@@ -1030,7 +1030,7 @@ pub fn build_window_elements_plain(
 /// Build window render elements using the rounded-corners path, falling back
 /// to the plain path when `rounded` is `None` or the corner shader is absent.
 #[cfg(feature = "rounded-corners")]
-pub fn build_window_elements_rounded(
+pub(crate) fn build_window_elements_rounded(
     renderer: &mut GlesRenderer,
     space: &Space<Window>,
     output: &Output,
@@ -1052,7 +1052,7 @@ pub fn build_window_elements_rounded(
 }
 
 /// Build border render elements using the plain (flat solid-colour) path.
-pub fn build_border_elements_plain(
+pub(crate) fn build_border_elements_plain(
     space: &Space<Window>,
     focused: Option<&Window>,
     scale: f64,
@@ -1072,7 +1072,7 @@ pub fn build_border_elements_plain(
 /// back to flat strips when `rounded` is `None` or the border shader is absent.
 #[cfg(feature = "rounded-corners")]
 #[allow(clippy::too_many_arguments)]
-pub fn build_border_elements_rounded(
+pub(crate) fn build_border_elements_rounded(
     renderer: &mut GlesRenderer,
     space: &Space<Window>,
     focused: Option<&Window>,

@@ -41,7 +41,7 @@ fn is_pinned(monitor: &Monitor, tag_idx: usize) -> bool {
 /// then the fixed config default.  Count-based rules are left untouched here and
 /// resolved by [`apply_dynamic`] once the tiled-window count is available.
 /// No-op for multi-tag views.
-pub fn apply(monitor: &mut Monitor, tagmask: u32) {
+pub(crate) fn apply(monitor: &mut Monitor, tagmask: u32) {
     if !tagmask.is_power_of_two() { return; }
     let tag_idx = tagmask.trailing_zeros() as usize;
 
@@ -65,7 +65,7 @@ pub fn apply(monitor: &mut Monitor, tagmask: u32) {
 /// Clears `Monitor::tag_lt_override` for the tag so automatic switching resumes,
 /// then re-applies the fixed rule immediately.  Count-based rules resolve on the
 /// next `arrange()` via [`apply_dynamic`].  No-op for multi-tag views.
-pub fn reset(monitor: &mut Monitor, tagmask: u32) {
+pub(crate) fn reset(monitor: &mut Monitor, tagmask: u32) {
     if !tagmask.is_power_of_two() { return; }
     let tag_idx = tagmask.trailing_zeros() as usize;
     if let Some(slot) = monitor.tag_lt_override.get_mut(tag_idx) {
@@ -78,7 +78,7 @@ pub fn reset(monitor: &mut Monitor, tagmask: u32) {
 /// `count`.  Called from `arrange()`, which runs on every window open, close and
 /// tag switch — so the layout tracks the count in both directions.  No-op for
 /// multi-tag views, pinned tags, and tags without a `ByCount` rule.
-pub fn apply_dynamic(monitor: &mut Monitor, tagmask: u32, count: usize) {
+pub(crate) fn apply_dynamic(monitor: &mut Monitor, tagmask: u32, count: usize) {
     if !tagmask.is_power_of_two() { return; }
     let tag_idx = tagmask.trailing_zeros() as usize;
     if is_pinned(monitor, tag_idx) { return; }
@@ -100,7 +100,7 @@ pub fn apply_dynamic(monitor: &mut Monitor, tagmask: u32, count: usize) {
 /// Keys are 1-based tag numbers.  A value may be a layout kind string, a 0-based
 /// layout index, or a table of either (a count-indexed list).  Tags not listed
 /// default to the built-in tile layout; unknown names also fall back to tile.
-pub fn lua_parse(
+pub(crate) fn lua_parse(
     t: &mlua::Table,
     layouts: &[crate::config::LayoutDef],
     tag_count: u32,

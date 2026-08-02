@@ -3,18 +3,18 @@
 //! Entry point: parses CLI arguments, sets up tracing, creates the compositor
 //! state and the udev/DRM backend, then runs the calloop event loop.
 
-mod actions;
-mod backend;
-mod config;
-mod error;
-mod grab;
-mod handlers;
-mod ipc;
-mod monitor;
-mod render;
-mod features;
-mod state;
-mod window;
+pub mod actions;
+pub mod backend;
+pub mod config;
+pub mod error;
+pub mod grab;
+pub mod handlers;
+pub mod ipc;
+pub mod monitor;
+pub mod render;
+pub mod features;
+pub mod state;
+pub mod window;
 
 #[cfg(feature = "bar")]
 use std::sync::Arc;
@@ -323,7 +323,7 @@ fn run(startup_cmd: Option<String>) -> Result<()> {
 
     #[cfg(feature = "ipc")]
     if let Some(path) = state.rwl_sock.take() {
-        let _ = std::fs::remove_file(path);
+        let _unused = std::fs::remove_file(path);
     }
 
     tracing::info!("rwl exiting");

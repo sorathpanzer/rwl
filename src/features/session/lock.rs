@@ -84,7 +84,7 @@ enum Phase {
 
 /// Live state for a native lock session. Held in `Rwl::native_lock` only while
 /// locked; dropping it zeroes the password.
-pub struct LockState {
+pub(crate) struct LockState {
     /// Login name to authenticate against, captured once at lock time.
     user: String,
     /// Typed password. Never rendered; only its length feeds the bar.
@@ -178,7 +178,7 @@ impl LockState {
 /// Engage the native lock. No-op if the session is already locked (by either a
 /// native lock or an external `ext-session-lock-v1` client), so the two schemes
 /// can never coexist.
-pub fn lock(state: &mut Rwl) {
+pub(crate) fn lock(state: &mut Rwl) {
     if state.locked || state.native_lock.is_some() {
         return;
     }
@@ -231,7 +231,7 @@ pub fn lock(state: &mut Rwl) {
 
 /// Feed a key press into the locker. Called from the input handler while a
 /// native lock is active; returns having fully consumed the key.
-pub fn feed_key(state: &mut Rwl, keysym: u32, ch: Option<char>) {
+pub(crate) fn feed_key(state: &mut Rwl, keysym: u32, ch: Option<char>) {
     let Some(lock) = state.native_lock.as_mut() else {
         return;
     };
@@ -422,7 +422,7 @@ fn bar_ids() -> &'static [Id; 2] {
 /// indicator. It stays a neutral grey throughout, turning red only when an
 /// attempt is rejected.
 #[must_use]
-pub fn bar_elements(lock: &LockState, output: &Output) -> Vec<SolidColorRenderElement> {
+pub(crate) fn bar_elements(lock: &LockState, output: &Output) -> Vec<SolidColorRenderElement> {
     let Some(mode) = output.current_mode() else {
         return Vec::new();
     };

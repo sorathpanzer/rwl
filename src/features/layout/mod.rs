@@ -35,7 +35,7 @@ use crate::monitor::Monitor;
 /// that stack windows in a shared column/row weight each window's span by its
 /// factor; single-window-per-column layouts ignore the values.
 #[must_use]
-pub fn arrange(monitor: &Monitor, cfacts: &[f64]) -> Vec<Rectangle<i32, Logical>> {
+pub(crate) fn arrange(monitor: &Monitor, cfacts: &[f64]) -> Vec<Rectangle<i32, Logical>> {
     if cfacts.is_empty() {
         return Vec::new();
     }
@@ -72,7 +72,7 @@ pub fn arrange(monitor: &Monitor, cfacts: &[f64]) -> Vec<Rectangle<i32, Logical>
 #[cfg(any(feature = "tile", feature = "bstack", feature = "centeredmaster"))]
 #[must_use]
 #[allow(clippy::cast_possible_truncation)]
-pub fn weighted_spans(total: i32, weights: &[f64]) -> Vec<i32> {
+pub(crate) fn weighted_spans(total: i32, weights: &[f64]) -> Vec<i32> {
     let n = weights.len();
     let mut spans = Vec::with_capacity(n);
     let mut used = 0i32;

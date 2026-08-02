@@ -16,7 +16,7 @@ use crate::monitor::Monitor;
     clippy::cast_sign_loss,
     clippy::cast_precision_loss,
 )]
-pub fn arrange(monitor: &Monitor, cfacts: &[f64]) -> Vec<Rectangle<i32, Logical>> {
+pub(crate) fn arrange(monitor: &Monitor, cfacts: &[f64]) -> Vec<Rectangle<i32, Logical>> {
     // One full-height window per column; per-window height factors don't apply.
     let n = cfacts.len();
     if n == 0 {
