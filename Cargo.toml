@@ -50,40 +50,61 @@ bar = [
 
 [lints.rust]
 unsafe_code = "deny"
-unused_must_use = "forbid"
+unused_must_use = "deny"
 
 missing_docs = "warn"
 missing_debug_implementations = "warn"
+
 unused_lifetimes = "warn"
 trivial_casts = "warn"
 trivial_numeric_casts = "warn"
 
 unreachable_pub = "warn"
-unused_crate_dependencies = "warn"
 unused_import_braces = "warn"
 unused_qualifications = "warn"
+
 let_underscore_drop = "warn"
 macro_use_extern_crate = "deny"
+variant_size_differences = "warn"
 
 [lints.clippy]
-enum_glob_use = "forbid"
 pedantic = { level = "warn", priority = -1 }
-nursery = { level = "warn", priority = -1 }
-panic = "forbid"
-unwrap_used = "forbid"
-expect_used = "forbid"
-implicit_clone = "forbid"
-redundant_clone = "forbid"
-mut_mut = "forbid"
-needless_pass_by_value = "warn"
 
+# Safety & Correctness
+unwrap_used = "deny"
+expect_used = "deny"
+panic_in_result_fn = "warn"
+unwrap_in_result = "warn"
+string_slice = "warn"
 fallible_impl_from = "deny"
+float_cmp = "warn"
+cast_possible_truncation = "warn"
+cast_possible_wrap = "warn"
+mut_mut = "deny"
 dbg_macro = "deny"
 todo = "warn"
 unimplemented = "warn"
+undocumented_unsafe_blocks = "warn"
+redundant_pub_crate = "warn"
+await_holding_lock = "warn"
+
+# Performance
+manual_string_new = "warn"
+useless_format = "warn"
+implicit_clone = "deny"
+redundant_clone = "deny"
 clone_on_ref_ptr = "warn"
 large_stack_arrays = "warn"
-large_types_passed_by_value = "warn"
+large_stack_frames = "warn"
+large_futures = "warn"
+inefficient_to_string = "warn"
+cloned_instead_of_copied = "warn"
+ptr_arg = "warn"
+option_if_let_else = "warn"
+multiple_crate_versions = "warn"
+
+# Style / API
+enum_glob_use = "deny"
 semicolon_if_nothing_returned = "warn"
 rc_buffer = "warn"
 
@@ -120,7 +141,7 @@ zeroize                  = { version = "1",   optional = true }
 # Native wallpaper decoding (`wallpaper` feature)
 image                    = { version = "0.25", default-features = false, features = ["png", "jpeg"], optional = true }
 
-smithay = { git = "https://github.com/Smithay/smithay", rev = "85f83ab61711e725aa1f3481df4f4dc5370e925b", default-features = false, features = [
+smithay = { git = "https://github.com/Smithay/smithay", rev = "5fb12b87407b3680135c45d94214c5f1b1d0fbea", default-features = false, features = [
     "desktop",
     "wayland_frontend",
     "backend_libinput",

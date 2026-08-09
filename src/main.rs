@@ -3,6 +3,16 @@
 //! Entry point: parses CLI arguments, sets up tracing, creates the compositor
 //! state and the udev/DRM backend, then runs the calloop event loop.
 
+// Multiple versions of the crates below remain in the resolved graph, but none
+// of them can be unified from rwl's side:
+//   - rustix 0.38/1.x, linux-raw-sys 0.4/0.9/0.12, getrandom 0.3/0.4: pinned by
+//     smithay's own Cargo.toml (drm 0.14 → rustix 0.38, drm-sys 0.8 → linux-raw-sys
+//     0.9, rand 0.9/tempfile → getrandom). They clear when smithay bumps those.
+//   - The rest (thiserror 1, jni-sys, windows-sys 0.48, hermit-abi 0.3, r-efi,
+//     redox_syscall, wit-bindgen, hashbrown 0.15, …) exist only on non-Linux
+//     targets (Android/Windows/Redox/wasm/UEFI) via winit's platform stacks.
+#![allow(clippy::multiple_crate_versions)]
+
 pub mod actions;
 pub mod backend;
 pub mod config;

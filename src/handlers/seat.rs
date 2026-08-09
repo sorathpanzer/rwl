@@ -17,7 +17,7 @@ use smithay::input::dnd::Source;
 use smithay::wayland::selection::SelectionHandler;
 use smithay::wayland::selection::wlr_data_control::{DataControlHandler, DataControlState};
 
-use smithay::wayland::tablet_manager::TabletSeatHandler;
+use smithay::input::tablet::TabletSeatHandler;
 
 use crate::state::Rwl;
 
@@ -124,7 +124,9 @@ impl DndGrabHandler for Rwl {
     }
 }
 
-impl TabletSeatHandler for Rwl {}
+impl TabletSeatHandler for Rwl {
+    type ToolFocus = WlSurface;
+}
 
 impl DataDeviceHandler for Rwl {
     fn data_device_state(&mut self) -> &mut DataDeviceState {

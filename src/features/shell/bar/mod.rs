@@ -1151,7 +1151,9 @@ fn compute_pix_ends(font: &Font, raw: &str, bounds: &[u32]) -> Vec<u32> {
     bounds.iter().map(|&b| {
         let mut end = (b as usize).min(raw.len());
         while end > 0 && !raw.is_char_boundary(end) { end -= 1; }
-        font.measure(&raw[..end], 0)
+        // `end` is guaranteed to be a char boundary by the loop above; the
+        // `get` is just belt-and-braces so no indexing can ever panic.
+        font.measure(raw.get(..end).unwrap_or(""), 0)
     }).collect()
 }
 
@@ -1546,7 +1548,7 @@ fn handle_socket_command(buf: &str, state: &mut State, qh: &QueueHandle<State>, 
     if indices.is_empty() { return; }
     let Some(cmd) = words.next() else { return };
     let skip = buf.splitn(3, char::is_whitespace).take(2).map(|s| s.len() + 1).sum::<usize>();
-    let rest = if skip < buf.len() { buf[skip..].trim_end_matches('\n') } else { "" };
+    let rest = buf.get(skip..).unwrap_or("").trim_end_matches('\n');
 
     match cmd {
         "prompt" => {
@@ -1855,8 +1857,10 @@ fn run_event_loop(
             if !state.stdin_buf.is_empty() {
                 let buf = mem::take(&mut state.stdin_buf);
                 if let Some(nl) = buf.rfind('\n') {
-                    process_stdin_buf(&buf[..=nl], &mut state.bars);
-                    buf[nl+1..].clone_into(&mut state.stdin_buf);
+                    // `nl` indexes an ASCII '\n' found via rfind, so both cuts
+                    // fall on char boundaries; `get` still guards the slicing.
+                    process_stdin_buf(buf.get(..=nl).unwrap_or(""), &mut state.bars);
+                    buf.get(nl + 1..).unwrap_or("").clone_into(&mut state.stdin_buf);
                 } else {
                     state.stdin_buf = buf;
                 }

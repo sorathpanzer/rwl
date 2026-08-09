@@ -109,7 +109,9 @@ fn cmd_handle(mut stream: UnixStream, state: &mut Rwl) {
 
     // Subscribe: keep stream alive and push status on every state change.
     if line == "subscribe" || line.starts_with("subscribe ") {
-        let rest = line["subscribe".len()..].trim();
+        // The starts_with check guarantees the byte at index 10 is a space;
+        // `get` still guards the slice so it can never panic.
+        let rest = line.get("subscribe".len()..).unwrap_or("").trim();
         let filter: Option<String> = if rest.is_empty() { None } else { Some(rest.to_owned()) };
         // Send the current snapshot immediately so the subscriber is not blank at start.
         let text = crate::ipc::format_status(state);
@@ -130,7 +132,7 @@ fn cmd_handle(mut stream: UnixStream, state: &mut Rwl) {
     // Watch: keep the stream alive and push structured JSON events. An optional
     // comma/space-separated list restricts delivery to those event kinds.
     if line == "watch" || line.starts_with("watch ") {
-        let rest = line["watch".len()..].trim();
+        let rest = line.get("watch".len()..).unwrap_or("").trim();
         let filter: Option<Vec<String>> = if rest.is_empty() {
             None
         } else {

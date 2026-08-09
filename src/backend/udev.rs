@@ -487,11 +487,12 @@ impl Rwl {
         let gbm = GbmDevice::new(drm_device_fd)
             .map_err(|e| RwlError::Drm(e.to_string()))?;
 
-        // EGLDisplay::new, EGLContext::new, GlesRenderer::new are unsafe fn in
-        // smithay because they call into C EGL/GL libraries. This is the only
-        // unavoidable unsafe block in the codebase; the rest of the compositor
-        // is fully safe Rust.
         #[cfg_attr(not(feature = "rounded-corners"), allow(unused_mut))]
+        // SAFETY: EGLDisplay::new, EGLContext::new and GlesRenderer::new are
+        // unsafe fn in smithay because they call into C EGL/GL libraries. The
+        // pointers they operate on are owned by the GbmDevice and EGLDisplay
+        // we hold, so the calls are valid; this is the only unavoidable unsafe
+        // block in the codebase.
         let (egl, mut renderer) = unsafe {
             let egl = EGLDisplay::new(gbm.clone())
                 .map_err(|e| RwlError::Renderer(e.to_string()))?;

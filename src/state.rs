@@ -659,7 +659,8 @@ impl Rwl {
             &self.display_handle,
             None,
             std::iter::empty::<(String, String)>(),
-            true,
+            std::iter::empty::<String>(),
+            false,
             std::process::Stdio::null(),
             std::process::Stdio::null(),
             |_| {},
@@ -1031,7 +1032,7 @@ impl Rwl {
         #[cfg(feature = "xwayland")]
         if let Some(x) = window.x11_surface() {
             use smithay::xwayland::xwm::WmWindowType;
-            if x.is_popup() {
+            if x.is_modal() {
                 return true;
             }
             // Float typed auxiliary windows — dialogs, utility panels, splash

@@ -46,7 +46,9 @@ pub(super) fn parse_into_customtext(text: &str, cfg: &Config) -> CustomText {
                 continue;
             }
         }
-        let Some(ch) = text[i..].chars().next() else { break; };
+        // `i` is only ever advanced by whole-char boundaries, but verify via
+        // from_utf8 anyway so a stray byte can never panic the indexing.
+        let Some(ch) = std::str::from_utf8(&bytes[i..]).ok().and_then(|s| s.chars().next()) else { break; };
         out_text.push(ch);
         i += ch.len_utf8();
     }
