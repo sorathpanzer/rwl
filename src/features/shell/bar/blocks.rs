@@ -6,6 +6,18 @@ use super::config::Block;
 
 const CMDLENGTH: usize = 50;
 
+/// Number of one-second ticks after startup during which signal-only
+/// (`interval == 0`) blocks are re-run every tick.
+///
+/// Such a block normally runs once at startup and then only on its signal.
+/// But the services those blocks query (PipeWire/`pactl`, the network stack,
+/// …) frequently aren't up yet the instant the compositor starts, so the
+/// command returns an empty value and — because it still exits `0` — the
+/// stale result (`🔊%`, an empty percentage, …) is cached until the next
+/// signal, which may not arrive for a long time. Re-running these blocks for
+/// a few seconds lets them self-correct once the service comes online.
+const STARTUP_SETTLE_TICKS: u32 = 5;
+
 pub(super) type StatusCache = Vec<String>;
 
 #[inline]
@@ -47,7 +59,10 @@ pub(super) fn update_cache(time: u32, signal_mask: u32, prev_cache: StatusCache,
         .iter()
         .zip(prev_cache)
         .map(|(block, previous)| {
-            let by_time = time == 0 || time == u32::MAX || (block.interval != 0 && time.is_multiple_of(block.interval));
+            let by_time = time == 0
+                || time == u32::MAX
+                || (block.interval != 0 && time.is_multiple_of(block.interval))
+                || (block.interval == 0 && time <= STARTUP_SETTLE_TICKS);
             let by_signal = block.signal != 0 && (signal_mask >> u32::from(block.signal)) & 1 == 1;
             if by_time || by_signal { getcmd(block) } else { previous }
         })
