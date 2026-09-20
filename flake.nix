@@ -85,9 +85,6 @@
 
           cargoLock = {
             lockFile = ./Cargo.lock;
-            outputHashes = {
-              "smithay-0.7.0" = "sha256-B6TM5KGVdZCNeYBNRskzHJKFUYaCD3cKpfV91paFmk0=";
-            };
           };
 
           nativeBuildInputs = nativeBuildInputs ++ [ pkgs.makeWrapper ];
