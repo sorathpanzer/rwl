@@ -105,6 +105,10 @@ local keys = {
     { mods=M,    key="+", action="spawn", cmd=sh("pactl set-sink-volume 0 +10% && pkill -RTMIN+1 rwl") },
     { mods=M,    key="-", action="spawn", cmd=sh("pactl set-sink-volume 0 -10% && pkill -RTMIN+1 rwl") },
     { mods=M,    key="m", action="spawn", cmd=sh("pactl set-sink-mute 0 toggle && pkill -RTMIN+1 rwl") },
+    -- Media keys (bare)
+    { mods="", key="XF86AudioRaiseVolume", action="spawn", cmd=sh("pactl set-sink-volume 0 +10% && pkill -RTMIN+1 rwl") },
+    { mods="", key="XF86AudioLowerVolume", action="spawn", cmd=sh("pactl set-sink-volume 0 -10% && pkill -RTMIN+1 rwl") },
+    { mods="", key="XF86AudioMute",        action="spawn", cmd=sh("pactl set-sink-mute 0 toggle && pkill -RTMIN+1 rwl") },
     { mods=M..S, key="R", action="spawn", cmd=sh("gammastep -O 4000") },
     -- Apps
     { mods=M,    key="v", action="spawn", cmd=sh("hyprtools stream") },
@@ -180,6 +184,22 @@ end
 
 add_tag_keys(keys, M, "view_tag_spawn")
 
+-- Keypad 1..6 -> workspaces 1..6 (works with NumLock on or off).
+-- Each digit has a NumLock-on keysym (KP_N) and a NumLock-off keysym (KP_<nav>).
+local kp_keys = {
+    { "KP_1", "KP_End"   },
+    { "KP_2", "KP_Down"  },
+    { "KP_3", "KP_Next"  },
+    { "KP_4", "KP_Left"  },
+    { "KP_5", "KP_Begin" },
+    { "KP_6", "KP_Right" },
+}
+for i, pair in ipairs(kp_keys) do
+    for _, k in ipairs(pair) do
+        keys[#keys+1] = { mods="", key=k, action="view_tag_spawn", mask=1<<(i-1) }
+    end
+end
+
 -- ─── Button bindings ─────────────────────────────────────────────────────────
 -- button: "left" | "right" | "middle"
 
@@ -187,6 +207,10 @@ local buttons = {
     { mods=M, button="left",   action="move"             },
     { mods=M, button="middle", action="toggle_floating"  },
     { mods=M, button="right",  action="resize"           },
+    -- Extra mouse buttons (bare). Codes: 275=side, 276=extra, 274=middle.
+    { mods="", button="275", action="view_prev"                       },
+    { mods="", button="276", action="view_next_occ_tag", dir=1        },
+    { mods="", button="274", action="toggle_overview_all"             },
 }
 
 -- Hand both tables back; config.lua unpacks them into the `keys`/`buttons` globals.

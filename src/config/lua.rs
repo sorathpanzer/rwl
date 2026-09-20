@@ -4,7 +4,7 @@
 use smithay::reexports::input::{AccelProfile, ClickMethod, ScrollMethod, TapButtonMap};
 use smithay::reexports::wayland_server::protocol::wl_output::Transform;
 
-use super::{hex_color, Color, Config, LayoutDef, LayoutKind, MonitorRule, Rule, XkbRules};
+use super::{hex_color, Color, Config, LayoutDef, LayoutKind, MonitorRule, PointerCfg, Rule, XkbRules};
 
 // ─── loading ──────────────────────────────────────────────────────────────────
 
@@ -70,7 +70,7 @@ const LUA_BUILTINS: &[&str] = &[
 const TOPLEVEL_KEYS: &[&str] = &[
     "tags", "rules", "layouts", "monitor_rules",
     "keys", "buttons", "auto_spawn", "startup_cmds", "bar_cmd",
-    "bar", "windows", "effects", "keyboard", "mouse", "pertag_layouts",
+    "bar", "windows", "effects", "keyboard", "touchpad", "mouse", "cursor", "pertag_layouts",
     #[cfg(feature = "wallpaper")]
     "wallpaper",
     #[cfg(feature = "overview")]
@@ -114,12 +114,18 @@ const KEYBOARD_KEYS: &[&str] = &[
     "numlock", "capslock", "repeat_rate", "repeat_delay",
 ];
 
-const MOUSE_KEYS: &[&str] = &[
-    "mouse_focus", "warp_cursor",
+// Per-device libinput settings (valid in both `touchpad` and `mouse` tables).
+const POINTER_KEYS: &[&str] = &[
     "tap_to_click", "tap_and_drag", "drag_lock", "natural_scrolling",
     "disable_while_typing", "left_handed", "middle_button_emulation",
     "scroll_method", "click_method", "accel_profile", "accel_speed",
-    "tap_button_map", "cursor_timeout", "cursor_theme", "cursor_size",
+    "tap_button_map",
+];
+
+// Global cursor / pointer-focus settings (the `cursor` table).
+const CURSOR_KEYS: &[&str] = &[
+    "mouse_focus", "warp_cursor",
+    "cursor_timeout", "cursor_theme", "cursor_size",
 ];
 
 #[cfg(feature = "bar")]
@@ -158,7 +164,9 @@ fn collect_unknown_keys(g: &mlua::Table) -> Vec<String> {
     if let Ok(t) = g.get::<mlua::Table>("wallpaper") { scan_keys(&t, Some("wallpaper"), WALLPAPER_KEYS, false, &mut out); }
     if let Ok(t) = g.get::<mlua::Table>("effects")  { scan_keys(&t, Some("effects"),  EFFECTS_KEYS,  false, &mut out); }
     if let Ok(t) = g.get::<mlua::Table>("keyboard") { scan_keys(&t, Some("keyboard"), KEYBOARD_KEYS, false, &mut out); }
-    if let Ok(t) = g.get::<mlua::Table>("mouse")    { scan_keys(&t, Some("mouse"),    MOUSE_KEYS,    false, &mut out); }
+    if let Ok(t) = g.get::<mlua::Table>("touchpad") { scan_keys(&t, Some("touchpad"), POINTER_KEYS, false, &mut out); }
+    if let Ok(t) = g.get::<mlua::Table>("mouse")    { scan_keys(&t, Some("mouse"),    POINTER_KEYS, false, &mut out); }
+    if let Ok(t) = g.get::<mlua::Table>("cursor")   { scan_keys(&t, Some("cursor"),   CURSOR_KEYS,  false, &mut out); }
     #[cfg(feature = "bar")]
     if let Ok(t) = g.get::<mlua::Table>("bar")      { scan_keys(&t, Some("bar"),      BAR_KEYS,      false, &mut out); }
     #[cfg(feature = "overview")]
@@ -186,16 +194,18 @@ impl Config {
         let ef = eff.as_ref();
         let kbd: Option<mlua::Table> = g.get::<mlua::Table>("keyboard").ok();
         let k = kbd.as_ref();
+        let tpd: Option<mlua::Table> = g.get::<mlua::Table>("touchpad").ok();
         let mse: Option<mlua::Table> = g.get::<mlua::Table>("mouse").ok();
-        let m = mse.as_ref();
+        let cur: Option<mlua::Table> = g.get::<mlua::Table>("cursor").ok();
+        let c = cur.as_ref();
         #[cfg(feature = "wallpaper")]
         let wall: Option<mlua::Table> = g.get::<mlua::Table>("wallpaper").ok();
         #[cfg(feature = "wallpaper")]
         let wp = wall.as_ref();
         Self {
-            mouse_focus:   m.map_or(defaults.mouse_focus, |t| lua_bool(t, "mouse_focus", defaults.mouse_focus)),
+            mouse_focus:   c.map_or(defaults.mouse_focus, |t| lua_bool(t, "mouse_focus", defaults.mouse_focus)),
             #[cfg(feature = "warp")]
-            warp_cursor:   m.map_or(defaults.warp_cursor, |t| lua_bool(t, "warp_cursor", defaults.warp_cursor)),
+            warp_cursor:   c.map_or(defaults.warp_cursor, |t| lua_bool(t, "warp_cursor", defaults.warp_cursor)),
             #[cfg(feature = "auto-back-empty-tag")]
             auto_back_empty_tag: w.map_or(defaults.auto_back_empty_tag, |t| lua_bool(t, "auto_back_empty_tag", defaults.auto_back_empty_tag)),
             follow:        w.map_or(defaults.follow,        |t| lua_bool(t,  "follow",        defaults.follow)),
@@ -240,21 +250,11 @@ impl Config {
             capslock:     k.map_or(defaults.capslock,     |t| lua_bool(t, "capslock",     defaults.capslock)),
             repeat_rate:  k.map_or(defaults.repeat_rate,  |t| lua_i32( t, "repeat_rate",  defaults.repeat_rate)),
             repeat_delay: k.map_or(defaults.repeat_delay, |t| lua_i32( t, "repeat_delay", defaults.repeat_delay)),
-            tap_to_click:            m.map_or(defaults.tap_to_click,            |t| lua_bool(t, "tap_to_click",            defaults.tap_to_click)),
-            tap_and_drag:            m.map_or(defaults.tap_and_drag,            |t| lua_bool(t, "tap_and_drag",            defaults.tap_and_drag)),
-            drag_lock:               m.map_or(defaults.drag_lock,               |t| lua_bool(t, "drag_lock",               defaults.drag_lock)),
-            natural_scrolling:       m.map_or(defaults.natural_scrolling,       |t| lua_bool(t, "natural_scrolling",       defaults.natural_scrolling)),
-            disable_while_typing:    m.map_or(defaults.disable_while_typing,    |t| lua_bool(t, "disable_while_typing",    defaults.disable_while_typing)),
-            left_handed:             m.map_or(defaults.left_handed,             |t| lua_bool(t, "left_handed",             defaults.left_handed)),
-            middle_button_emulation: m.map_or(defaults.middle_button_emulation, |t| lua_bool(t, "middle_button_emulation", defaults.middle_button_emulation)),
-            scroll_method:      m.map_or(defaults.scroll_method,      |t| lua_scroll_method(t, defaults.scroll_method)),
-            click_method:       m.map_or(defaults.click_method,       |t| lua_click_method( t, defaults.click_method)),
-            accel_profile:      m.map_or(defaults.accel_profile,      |t| lua_accel_profile(t, defaults.accel_profile)),
-            accel_speed:        m.map_or(defaults.accel_speed,        |t| lua_f64(t, "accel_speed", defaults.accel_speed)),
-            tap_button_map:     m.map_or(defaults.tap_button_map,     |t| lua_tap_button_map(t, defaults.tap_button_map)),
-            cursor_timeout_secs: m.map_or(defaults.cursor_timeout_secs, |t| lua_u64(t, "cursor_timeout", defaults.cursor_timeout_secs)),
-            cursor_theme: m.and_then(|t| lua_str(t, "cursor_theme")).or(defaults.cursor_theme),
-            cursor_size:  m.map_or(defaults.cursor_size, |t| lua_u32(t, "cursor_size", defaults.cursor_size)),
+            touchpad: lua_pointer_cfg(tpd.as_ref(), defaults.touchpad),
+            mouse:    lua_pointer_cfg(mse.as_ref(), defaults.mouse),
+            cursor_timeout_secs: c.map_or(defaults.cursor_timeout_secs, |t| lua_u64(t, "cursor_timeout", defaults.cursor_timeout_secs)),
+            cursor_theme: c.and_then(|t| lua_str(t, "cursor_theme")).or(defaults.cursor_theme),
+            cursor_size:  c.map_or(defaults.cursor_size, |t| lua_u32(t, "cursor_size", defaults.cursor_size)),
             keys:         super::keybinds::lua_keys(g, defaults.keys),
             buttons:      super::keybinds::lua_buttons(g, defaults.buttons),
             auto_spawn:   lua_auto_spawn(g, defaults.auto_spawn),
@@ -351,6 +351,27 @@ pub(super) fn lua_color(t: &mlua::Table, key: &str, default: Color) -> Color {
 }
 
 // ─── Lua enum helpers ─────────────────────────────────────────────────────────
+
+/// Parse a `touchpad` / `mouse` table into a [`PointerCfg`], each field falling
+/// back to the supplied per-device defaults. `t` is `None` when the table is
+/// absent, in which case the defaults are returned unchanged.
+fn lua_pointer_cfg(t: Option<&mlua::Table>, d: PointerCfg) -> PointerCfg {
+    let Some(t) = t else { return d };
+    PointerCfg {
+        tap_to_click:            lua_bool(t, "tap_to_click",            d.tap_to_click),
+        tap_and_drag:            lua_bool(t, "tap_and_drag",            d.tap_and_drag),
+        drag_lock:               lua_bool(t, "drag_lock",               d.drag_lock),
+        natural_scrolling:       lua_bool(t, "natural_scrolling",       d.natural_scrolling),
+        disable_while_typing:    lua_bool(t, "disable_while_typing",    d.disable_while_typing),
+        left_handed:             lua_bool(t, "left_handed",             d.left_handed),
+        middle_button_emulation: lua_bool(t, "middle_button_emulation", d.middle_button_emulation),
+        scroll_method:  lua_scroll_method(t, d.scroll_method),
+        click_method:   lua_click_method(t, d.click_method),
+        accel_profile:  lua_accel_profile(t, d.accel_profile),
+        accel_speed:    lua_f64(t, "accel_speed", d.accel_speed),
+        tap_button_map: lua_tap_button_map(t, d.tap_button_map),
+    }
+}
 
 fn lua_scroll_method(t: &mlua::Table, default: ScrollMethod) -> ScrollMethod {
     match t.get::<String>("scroll_method").as_deref() {

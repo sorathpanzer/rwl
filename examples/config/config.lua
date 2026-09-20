@@ -162,7 +162,8 @@ keyboard = {
 -- accel_profile:  "none" | "flat" | "adaptive"
 -- tap_button_map: "left_middle_right" | "left_right_middle"
 
-mouse = {
+-- Touchpad-specific libinput settings.
+touchpad = {
     tap_to_click            = true,
     tap_and_drag            = true,
     drag_lock               = true,
@@ -175,11 +176,25 @@ mouse = {
     accel_profile           = "adaptive",
     accel_speed             = 0.0,
     tap_button_map          = "left_right_middle",
-    mouse_focus              = true,   -- focus follows mouse
-    cursor_timeout          = 5,   -- seconds before cursor hides
-    warp_cursor = true,
-    cursor_theme = "Adwaita",
-    cursor_size = 24,
+}
+
+-- External mouse libinput settings. Accepts the same fields as `touchpad`;
+-- touchpad-only ones (tap*, scroll/click method, dwt) are no-ops on a mouse.
+mouse = {
+    natural_scrolling       = false,
+    accel_profile           = "flat",
+    accel_speed             = 0.0,
+    left_handed             = false,
+    middle_button_emulation = false,
+}
+
+-- Global cursor / pointer-focus settings (not per-device).
+cursor = {
+    mouse_focus    = true,       -- focus follows mouse
+    warp_cursor    = true,
+    cursor_timeout = 5,          -- seconds before cursor hides
+    cursor_theme   = "Adwaita",
+    cursor_size    = 24,
 }
 
 overview = {

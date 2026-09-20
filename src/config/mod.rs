@@ -35,6 +35,57 @@ use smithay::reexports::input::{AccelProfile, ClickMethod, ScrollMethod, TapButt
 use keybinds::{default_buttons, default_keys};
 use types::{default_auto_spawn, default_layouts, default_monitor_rules, default_rules};
 
+// ─── Pointer (per-device libinput) config ──────────────────────────────────────
+
+/// libinput settings applied per input device. The same field set is parsed for
+/// both the `touchpad` and `mouse` Lua tables; `apply_libinput_config` picks the
+/// matching instance by device class. Touchpad-only settings (tap*, click/scroll
+/// method, dwt) are simply no-ops on a mouse, so the shared shape is harmless.
+#[derive(Clone, Copy)]
+pub(crate) struct PointerCfg {
+    pub tap_to_click:            bool,
+    pub tap_and_drag:            bool,
+    pub drag_lock:               bool,
+    pub natural_scrolling:       bool,
+    pub disable_while_typing:    bool,
+    pub left_handed:             bool,
+    pub middle_button_emulation: bool,
+    pub scroll_method:           ScrollMethod,
+    pub click_method:            ClickMethod,
+    pub accel_profile:           AccelProfile,
+    pub accel_speed:             f64,
+    pub tap_button_map:          TapButtonMap,
+}
+
+impl PointerCfg {
+    /// Defaults for a touchpad (tap-to-click, two-finger scroll, natural scroll).
+    fn touchpad_defaults() -> Self {
+        Self {
+            tap_to_click:            true,
+            tap_and_drag:            true,
+            drag_lock:               true,
+            natural_scrolling:       true,
+            disable_while_typing:    true,
+            left_handed:             false,
+            middle_button_emulation: false,
+            scroll_method:  ScrollMethod::TwoFinger,
+            click_method:   ClickMethod::ButtonAreas,
+            accel_profile:  AccelProfile::Adaptive,
+            accel_speed:    0.0,
+            tap_button_map: TapButtonMap::LeftRightMiddle,
+        }
+    }
+
+    /// Defaults for an external mouse: no natural scrolling, flat accel.
+    fn mouse_defaults() -> Self {
+        Self {
+            natural_scrolling: false,
+            accel_profile:     AccelProfile::Flat,
+            ..Self::touchpad_defaults()
+        }
+    }
+}
+
 // ─── Config struct ────────────────────────────────────────────────────────────
 
 pub(crate) struct Config {
@@ -109,19 +160,10 @@ pub(crate) struct Config {
     pub capslock:     bool,
     pub repeat_rate:  i32,
     pub repeat_delay: i32,
-    // Pointer / libinput
-    pub tap_to_click:           bool,
-    pub tap_and_drag:           bool,
-    pub drag_lock:              bool,
-    pub natural_scrolling:      bool,
-    pub disable_while_typing:   bool,
-    pub left_handed:            bool,
-    pub middle_button_emulation: bool,
-    pub scroll_method:          ScrollMethod,
-    pub click_method:           ClickMethod,
-    pub accel_profile:          AccelProfile,
-    pub accel_speed:            f64,
-    pub tap_button_map:         TapButtonMap,
+    // Pointer / libinput — parsed per device class (see `PointerCfg`).
+    pub touchpad: PointerCfg,
+    pub mouse:    PointerCfg,
+    // Cursor (global, not per-device).
     pub cursor_timeout_secs:    u64,
     pub cursor_theme:           Option<String>,
     pub cursor_size:            u32,
@@ -210,18 +252,8 @@ impl Default for Config {
             capslock:     false,
             repeat_rate:  25,
             repeat_delay: 600,
-            tap_to_click:            true,
-            tap_and_drag:            true,
-            drag_lock:               true,
-            natural_scrolling:       true,
-            disable_while_typing:    true,
-            left_handed:             false,
-            middle_button_emulation: false,
-            scroll_method: ScrollMethod::TwoFinger,
-            click_method:  ClickMethod::ButtonAreas,
-            accel_profile: AccelProfile::Adaptive,
-            accel_speed:   0.0,
-            tap_button_map: TapButtonMap::LeftRightMiddle,
+            touchpad: PointerCfg::touchpad_defaults(),
+            mouse:    PointerCfg::mouse_defaults(),
             cursor_timeout_secs: 5,
             cursor_theme: None,
             cursor_size: 24,

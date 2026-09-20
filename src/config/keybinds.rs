@@ -401,4 +401,11 @@ static NAMED_KEYSYMS: &[(&str, u32)] = &[
     ("XF86AudioPrev",        KS::KEY_XF86AudioPrev),
     ("XF86MonBrightnessUp",  KS::KEY_XF86MonBrightnessUp),
     ("XF86MonBrightnessDown",KS::KEY_XF86MonBrightnessDown),
+    // Keypad (KP_N with NumLock on, KP_<nav> with NumLock off)
+    ("KP_1",   KS::KEY_KP_1),   ("KP_End",   KS::KEY_KP_End),
+    ("KP_2",   KS::KEY_KP_2),   ("KP_Down",  KS::KEY_KP_Down),
+    ("KP_3",   KS::KEY_KP_3),   ("KP_Next",  KS::KEY_KP_Next),
+    ("KP_4",   KS::KEY_KP_4),   ("KP_Left",  KS::KEY_KP_Left),
+    ("KP_5",   KS::KEY_KP_5),   ("KP_Begin", KS::KEY_KP_Begin),
+    ("KP_6",   KS::KEY_KP_6),   ("KP_Right", KS::KEY_KP_Right),
 ];

@@ -1721,36 +1721,41 @@ fn apply_libinput_config(
     cfg: &crate::config::Config,
 ) {
     use smithay::reexports::input::DragLockState;
-    if device.config_tap_finger_count() > 0 {
-        let _ = device.config_tap_set_enabled(cfg.tap_to_click);
-        let _ = device.config_tap_set_drag_enabled(cfg.tap_and_drag);
-        let drag_lock = if cfg.drag_lock {
+    // Touchpads report a tap-finger count > 0; everything else (mice,
+    // trackpoints) is treated as a mouse. Pick the matching per-device config so
+    // e.g. natural scrolling can differ between touchpad and mouse.
+    let is_touchpad = device.config_tap_finger_count() > 0;
+    let p = if is_touchpad { &cfg.touchpad } else { &cfg.mouse };
+    if is_touchpad {
+        let _ = device.config_tap_set_enabled(p.tap_to_click);
+        let _ = device.config_tap_set_drag_enabled(p.tap_and_drag);
+        let drag_lock = if p.drag_lock {
             DragLockState::EnabledTimeout
         } else {
             DragLockState::Disabled
         };
         let _ = device.config_tap_set_drag_lock_enabled(drag_lock);
-        let _ = device.config_tap_set_button_map(cfg.tap_button_map);
+        let _ = device.config_tap_set_button_map(p.tap_button_map);
     }
     if device.config_scroll_has_natural_scroll() {
-        let _ = device.config_scroll_set_natural_scroll_enabled(cfg.natural_scrolling);
+        let _ = device.config_scroll_set_natural_scroll_enabled(p.natural_scrolling);
     }
-    let _ = device.config_scroll_set_method(cfg.scroll_method);
-    if device.config_click_methods().contains(&cfg.click_method) {
-        let _ = device.config_click_set_method(cfg.click_method);
+    let _ = device.config_scroll_set_method(p.scroll_method);
+    if device.config_click_methods().contains(&p.click_method) {
+        let _ = device.config_click_set_method(p.click_method);
     }
     if device.config_left_handed_is_available() {
-        let _ = device.config_left_handed_set(cfg.left_handed);
+        let _ = device.config_left_handed_set(p.left_handed);
     }
     if device.config_middle_emulation_is_available() {
-        let _ = device.config_middle_emulation_set_enabled(cfg.middle_button_emulation);
+        let _ = device.config_middle_emulation_set_enabled(p.middle_button_emulation);
     }
     if device.config_dwt_is_available() {
-        let _ = device.config_dwt_set_enabled(cfg.disable_while_typing);
+        let _ = device.config_dwt_set_enabled(p.disable_while_typing);
     }
     if device.config_accel_is_available() {
-        let _ = device.config_accel_set_profile(cfg.accel_profile);
-        let _ = device.config_accel_set_speed(cfg.accel_speed);
+        let _ = device.config_accel_set_profile(p.accel_profile);
+        let _ = device.config_accel_set_speed(p.accel_speed);
     }
 }
 

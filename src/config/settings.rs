@@ -4,7 +4,9 @@
 //! module only reads them from the Lua config.
 
 #[cfg(any(feature = "overview", feature = "pip", feature = "bar"))]
-use super::lua::{lua_bool, lua_color, lua_str, lua_u32};
+use super::lua::{lua_color, lua_str, lua_u32};
+#[cfg(feature = "bar")]
+use super::lua::lua_bool;
 
 #[cfg(feature = "overview")]
 use crate::features::overview::OverviewSettings;
