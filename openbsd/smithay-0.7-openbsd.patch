@@ -1,0 +1,68 @@
+--- a/src/wayland/drm_syncobj/mod.rs	2026-08-02 12:12:23.572899959 +0100
++++ b/src/wayland/drm_syncobj/mod.rs	2026-09-13 14:24:36.698422015 +0100
+@@ -69,11 +69,22 @@
+ /// Test if DRM device supports `syncobj_eventfd`.
+ // Similar to test used in Mutter
+ pub fn supports_syncobj_eventfd(device: &DrmDeviceFd) -> bool {
+-    // Pass device as placeholder for eventfd as well, since `drm_ffi` requires
+-    // a valid fd.
+-    match drm_ffi::syncobj::eventfd(device.as_fd(), 0, 0, device.as_fd(), false) {
+-        Ok(_) => unreachable!(),
+-        Err(err) => err.kind() == std::io::ErrorKind::NotFound,
++    // OpenBSD has no eventfd(2), so DRM syncobj eventfd support is never
++    // available; report unsupported so the protocol global is not exposed.
++    #[cfg(target_os = "openbsd")]
++    {
++        // Touch `device` through `AsFd` so the import stays used on OpenBSD too.
++        let _ = device.as_fd();
++        false
++    }
++    #[cfg(not(target_os = "openbsd"))]
++    {
++        // Pass device as placeholder for eventfd as well, since `drm_ffi` requires
++        // a valid fd.
++        match drm_ffi::syncobj::eventfd(device.as_fd(), 0, 0, device.as_fd(), false) {
++            Ok(_) => unreachable!(),
++            Err(err) => err.kind() == std::io::ErrorKind::NotFound,
++        }
+     }
+ }
+ 
+--- a/src/wayland/drm_syncobj/sync_point.rs	2026-08-02 12:12:23.573028832 +0100
++++ b/src/wayland/drm_syncobj/sync_point.rs	2026-09-13 13:14:37.294240731 +0100
+@@ -124,6 +124,15 @@
+     }
+ 
+     /// Create an eventfd that will be signaled by the syncpoint
++    #[cfg(target_os = "openbsd")]
++    pub fn eventfd(&self) -> io::Result<Arc<OwnedFd>> {
++        // OpenBSD lacks eventfd(2); syncobj eventfd is never used here because
++        // `supports_syncobj_eventfd` reports unsupported on this platform.
++        Err(io::Error::from(io::ErrorKind::Unsupported))
++    }
++
++    /// Create an eventfd that will be signaled by the syncpoint
++    #[cfg(not(target_os = "openbsd"))]
+     pub fn eventfd(&self) -> io::Result<Arc<OwnedFd>> {
+         let fd = rustix::event::eventfd(
+             0,
+--- a/src/backend/egl/ffi.rs	2026-08-02 12:12:23.547438492 +0100
++++ b/src/backend/egl/ffi.rs	2026-09-13 13:14:46.833154524 +0100
+@@ -144,8 +144,16 @@
+     use libloading::Library;
+     use std::sync::{LazyLock, Once};
+ 
++    // OpenBSD ships versioned shared objects without the `.so.1` symlink Linux
++    // provides, so the runtime name differs. Adjust the minor version to match
++    // the installed Mesa if loading fails (`ls /usr/X11R6/lib/libEGL.so*`).
++    #[cfg(target_os = "openbsd")]
++    const LIBEGL: &str = "libEGL.so.2.0";
++    #[cfg(not(target_os = "openbsd"))]
++    const LIBEGL: &str = "libEGL.so.1";
++
+     pub static LIB: LazyLock<Library> =
+-        LazyLock::new(|| unsafe { Library::new("libEGL.so.1") }.expect("Failed to load LibEGL"));
++        LazyLock::new(|| unsafe { Library::new(LIBEGL) }.expect("Failed to load LibEGL"));
+ 
+     pub static LOAD: Once = Once::new();
+     pub static DEBUG: Once = Once::new();

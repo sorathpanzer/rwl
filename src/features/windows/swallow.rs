@@ -5,14 +5,16 @@
 //! its place in the layout; closing the child restores the terminal.
 //!
 //! Matching is by **process ancestry**: the child's PID must descend from the
-//! terminal's PID (walked via `/proc/<pid>/stat`), and the terminal's `app_id`
+//! terminal's PID (walked via `/proc/<pid>/stat` on Linux, `sysctl(KERN_PROC_PID)`
+//! on OpenBSD), and the terminal's `app_id`
 //! must be in the configured `swallow.terminals` list. Because rwl inserts new
 //! windows at the front of the stack, a just-spawned child already sits above
 //! its terminal in tiling order, so hiding the terminal lets the child occupy
 //! its slot with no reordering.
 //!
-//! Compiled only when the `swallow` Cargo feature is enabled. Linux-only (reads
-//! `/proc`), which matches rwl's udev/DRM target.
+//! Compiled only when the `swallow` Cargo feature is enabled. Process ancestry
+//! is resolved per-OS (Linux `/proc`, OpenBSD `sysctl`); on platforms with
+//! neither, swallowing never matches an ancestor.
 
 use smithay::desktop::Window;
 use smithay::reexports::wayland_server::Resource as _;
@@ -80,12 +82,59 @@ fn window_pid(state: &Rwl, window: &Window) -> Option<i32> {
 ///
 /// The `comm` field (2nd) is wrapped in parentheses and may itself contain
 /// spaces or `)`, so parse the fields *after the last* `)`: `state ppid …`.
+#[cfg(target_os = "linux")]
 fn parent_pid(pid: i32) -> Option<i32> {
     let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
     let tail = stat.rsplit_once(')')?.1;
     let mut fields = tail.split_whitespace();
     let _state = fields.next()?; // field 3
     fields.next()?.parse::<i32>().ok() // field 4: ppid
+}
+
+/// Parent PID of `pid`, via `sysctl(KERN_PROC_PID)` — OpenBSD has no `/proc`.
+///
+/// The OpenBSD MIB is 6-wide: `{ CTL_KERN, KERN_PROC, KERN_PROC_PID, pid,
+/// sizeof(kinfo_proc), 1 }`, where the trailing two elements give the struct
+/// size and the element count.
+#[cfg(target_os = "openbsd")]
+#[allow(unsafe_code)]
+fn parent_pid(pid: i32) -> Option<i32> {
+    let size = size_of::<libc::kinfo_proc>();
+    let mut mib: [libc::c_int; 6] = [
+        libc::CTL_KERN,
+        libc::KERN_PROC,
+        libc::KERN_PROC_PID,
+        pid,
+        libc::c_int::try_from(size).ok()?,
+        1,
+    ];
+    // SAFETY: `kinfo_proc` is a plain-old-data struct; zeroing it is a valid
+    // initial value before `sysctl` fills it in.
+    let mut kp: libc::kinfo_proc = unsafe { core::mem::zeroed() };
+    let mut len = size;
+    // SAFETY: `mib` has `mib.len()` valid elements; the output buffer is exactly
+    // `len` bytes (a single `kinfo_proc`); no new value is written (`newp` null).
+    let rc = unsafe {
+        libc::sysctl(
+            mib.as_mut_ptr(),
+            mib.len() as libc::c_uint,
+            core::ptr::from_mut(&mut kp).cast(),
+            &mut len,
+            core::ptr::null_mut(),
+            0,
+        )
+    };
+    if rc != 0 || len == 0 {
+        return None;
+    }
+    Some(kp.p_ppid)
+}
+
+/// No process-ancestry source on other platforms — swallowing simply never
+/// matches an ancestor there.
+#[cfg(not(any(target_os = "linux", target_os = "openbsd")))]
+fn parent_pid(_pid: i32) -> Option<i32> {
+    None
 }
 
 /// The terminal `child` would swallow, if any: the nearest non-swallowed terminal

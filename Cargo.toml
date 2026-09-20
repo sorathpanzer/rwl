@@ -135,8 +135,9 @@ wayland-scanner          = { version = "0.31", optional = true }
 bytemuck                 = { version = "1",    optional = true }
 signal-hook              = { version = "0.4",  optional = true }
 rustix                   = { version = "1",    features = ["fs", "event", "pipe"] }
-# Native screen locker (`lock` feature)
-pam                      = { version = "0.7", optional = true }
+# Native screen locker (`lock` feature). `pam` is Linux/other-only — OpenBSD has
+# no libpam and authenticates via bsd_auth (`auth_userokay`) instead, so `pam`
+# lives in a target-gated table below and is absent on OpenBSD.
 zeroize                  = { version = "1",   optional = true }
 # Native wallpaper decoding (`wallpaper` feature)
 image                    = { version = "0.25", default-features = false, features = ["png", "jpeg"], optional = true }
@@ -159,3 +160,15 @@ xcursor = "0.3"
 thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# PAM backs the `lock` feature everywhere except OpenBSD, which has no libpam and
+# uses bsd_auth (`auth_userokay`) from libc instead (see src/features/session/lock.rs).
+[target.'cfg(not(target_os = "openbsd"))'.dependencies]
+pam                      = { version = "0.7", optional = true }
+
+# OpenBSD: use a sibling checkout of Smithay@5fb12b8 with
+# openbsd/smithay-0.7-openbsd.patch applied (see docs/openbsd.md). The patch is
+# cfg-gated, so Linux behavior is unchanged — but this path must exist for any
+# build to resolve, so keep the `../smithay` checkout in place.
+[patch."https://github.com/Smithay/smithay"]
+smithay = { path = "./smithay" }

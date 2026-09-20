@@ -69,6 +69,7 @@ const RED: [f32; 4] = [0.90, 0.16, 0.16, 1.0];
 /// PAM service name. On NixOS this requires `security.pam.services.rwl-lock = {};`
 /// (which wires up the standard `pam_unix` user-auth stack); without it every
 /// authentication fails closed and the screen stays locked.
+#[cfg(not(target_os = "openbsd"))]
 const PAM_SERVICE: &str = "rwl-lock";
 
 /// Phase of the locked session, driving the bar colour.
@@ -391,6 +392,7 @@ fn current_user() -> Option<String> {
 
 /// Blocking PAM password check. Runs on a worker thread. Fails closed on any
 /// error (missing service, wrong password, PAM misconfiguration).
+#[cfg(not(target_os = "openbsd"))]
 fn authenticate(user: &str, password: &str) -> bool {
     match pam::Authenticator::with_password(PAM_SERVICE) {
         Ok(mut auth) => {
@@ -402,6 +404,44 @@ fn authenticate(user: &str, password: &str) -> bool {
             false
         }
     }
+}
+
+/// Blocking BSD-auth password check (OpenBSD has no PAM). Runs on a worker
+/// thread and fails closed. `auth_userokay(3)` clears the password buffer after
+/// use; NULL `style`/`type` selects the user's default login style.
+#[cfg(target_os = "openbsd")]
+#[allow(unsafe_code)]
+fn authenticate(user: &str, password: &str) -> bool {
+    use std::ffi::CString;
+
+    // SAFETY: matches the OpenBSD <bsd_auth.h> prototype
+    // `int auth_userokay(char *name, char *style, char *type, char *password);`.
+    // `name` is declared `*const` (the call never mutates it); this is
+    // ABI-identical to `char *`.
+    unsafe extern "C" {
+        fn auth_userokay(
+            name: *const libc::c_char,
+            style: *mut libc::c_char,
+            type_: *mut libc::c_char,
+            password: *mut libc::c_char,
+        ) -> libc::c_int;
+    }
+
+    let (Ok(name), Ok(pw)) = (CString::new(user), CString::new(password)) else {
+        return false; // embedded NUL — cannot be a valid credential
+    };
+    // Give `auth_userokay` an owned, mutable, NUL-terminated buffer it can clear.
+    let pw_ptr = pw.into_raw();
+    // SAFETY: `name` is a valid NUL-terminated C string; `pw_ptr` is a valid
+    // owned NUL-terminated buffer from `CString::into_raw`; `style`/`type` NULL
+    // request defaults. `auth_userokay` zeroes (not frees) the password.
+    let ok = unsafe {
+        auth_userokay(name.as_ptr(), core::ptr::null_mut(), core::ptr::null_mut(), pw_ptr)
+    };
+    // Reclaim ownership so the (now-zeroed) buffer is freed.
+    // SAFETY: `pw_ptr` came from `CString::into_raw` and has not been freed.
+    drop(unsafe { CString::from_raw(pw_ptr) });
+    ok != 0
 }
 
 // ---------------------------------------------------------------------------

@@ -132,24 +132,38 @@ rules = {
 | `repeat_rate` | int | `25` | Key repeats per second. |
 | `repeat_delay` | int | `600` | Delay (ms) before repeat starts. |
 
-### `mouse`
+### `touchpad` and `mouse`
+
+Per-device libinput settings. Both tables accept the **same** fields; at runtime
+each connected device is classified (touchpad if it reports a tap-finger count,
+otherwise mouse) and the matching table is applied. This lets settings such as
+`natural_scrolling` differ between the touchpad and an external mouse.
+Touchpad-only fields (tap*, `scroll_method`, `click_method`,
+`disable_while_typing`) are simply ignored on a mouse.
+
+| Key | Type | `touchpad` default | `mouse` default | Meaning |
+|-----|------|---------|---------|---------|
+| `tap_to_click` | bool | `true` | — | Touchpad tap-to-click. |
+| `tap_and_drag` | bool | `true` | — | Tap-and-drag. |
+| `drag_lock` | bool | `true` | — | Drag lock. |
+| `natural_scrolling` | bool | `true` | `false` | Natural (reversed) scrolling. |
+| `disable_while_typing` | bool | `true` | — | Disable touchpad while typing. |
+| `left_handed` | bool | `false` | `false` | Left-handed button mapping. |
+| `middle_button_emulation` | bool | `false` | `false` | Emulate middle click. |
+| `scroll_method` | enum | `two_finger` | — | `no_scroll` / `two_finger` / `edge` / `on_button_down`. |
+| `click_method` | enum | `button_areas` | — | `button_areas` / `clickfinger`. |
+| `accel_profile` | enum | `adaptive` | `flat` | `flat` / `adaptive`. |
+| `accel_speed` | float | `0.0` | `0.0` | Pointer acceleration (`-1.0 .. 1.0`). |
+| `tap_button_map` | enum | `left_right_middle` | — | Tap button mapping. |
+
+### `cursor`
+
+Global cursor / pointer-focus settings (not per-device).
 
 | Key | Type | Default | Meaning |
 |-----|------|---------|---------|
 | `mouse_focus` | bool | `true` | Focus follows pointer. |
 | `warp_cursor` | bool | `true` | Warp pointer to focused window (`warp` feature). |
-| `tap_to_click` | bool | `true` | Touchpad tap-to-click. |
-| `tap_and_drag` | bool | `true` | Tap-and-drag. |
-| `drag_lock` | bool | `true` | Drag lock. |
-| `natural_scrolling` | bool | `true` | Natural (reversed) scrolling. |
-| `disable_while_typing` | bool | `true` | Disable touchpad while typing. |
-| `left_handed` | bool | `false` | Left-handed button mapping. |
-| `middle_button_emulation` | bool | `false` | Emulate middle click. |
-| `scroll_method` | enum | `two_finger` | `no_scroll` / `two_finger` / `edge` / `button`. |
-| `click_method` | enum | `button_areas` | `none` / `button_areas` / `clickfinger`. |
-| `accel_profile` | enum | `adaptive` | `flat` / `adaptive`. |
-| `accel_speed` | float | `0.0` | Pointer acceleration (`-1.0 .. 1.0`). |
-| `tap_button_map` | enum | `lrm` | Tap button mapping. |
 | `cursor_timeout` | int | `5` | Seconds of inactivity before the cursor hides. |
 | `cursor_theme` | string | *(system)* | XCursor theme name. |
 | `cursor_size` | int | `24` | Cursor size. |

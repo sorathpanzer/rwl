@@ -2004,6 +2004,33 @@ pub(crate) fn start(reader: PipeReader, settings: BarSettings, wayland_socket: S
 
 // ── Bar thread main ───────────────────────────────────────────────────────────
 
+/// OS signal used to trigger an immediate refresh of block number `sig` (a
+/// dwmblocks-style "signal" 1..=N declared per block).
+///
+/// Linux has the real-time signal range, so each block gets its own
+/// `SIGRTMIN+sig`. OpenBSD has no RT signals, so only the two spare user
+/// signals are available: block signal 1 → `SIGUSR1`, 2 → `SIGUSR2`; higher
+/// numbers are unsupported (those blocks still refresh on their interval).
+/// Other platforms have no signal-driven refresh.
+#[cfg(target_os = "linux")]
+fn rt_signum(sig: u8) -> Option<i32> {
+    Some(libc::SIGRTMIN() + i32::from(sig))
+}
+
+#[cfg(target_os = "openbsd")]
+fn rt_signum(sig: u8) -> Option<i32> {
+    match sig {
+        1 => Some(libc::SIGUSR1),
+        2 => Some(libc::SIGUSR2),
+        _ => None,
+    }
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "openbsd")))]
+fn rt_signum(_sig: u8) -> Option<i32> {
+    None
+}
+
 #[allow(clippy::too_many_lines)]
 fn run_bar(ipc_fd: OwnedFd, settings: BarSettings, wayland_socket: String, notification_flag: &Arc<AtomicBool>) {
     let cfg = Config::from_settings(&settings);
@@ -2060,8 +2087,8 @@ fn run_bar(ipc_fd: OwnedFd, settings: BarSettings, wayland_socket: String, notif
             .filter(|b| b.signal > 0)
             .filter_map(|b| seen.insert(b.signal).then_some(b.signal))
             .filter_map(|sig_n| {
+                let signum = rt_signum(sig_n)?;
                 let flag = Arc::new(AtomicBool::new(false));
-                let signum = libc::SIGRTMIN() + i32::from(sig_n);
                 let ok1 = signal_hook::flag::register(signum, Arc::clone(&flag)).is_ok();
                 let wake_dup = rustix::io::dup(&wake_pipe_w).ok()?;
                 let ok2 = signal_hook::low_level::pipe::register(signum, wake_dup).is_ok();
@@ -2219,8 +2246,8 @@ fn run_bar(ipc_fd: OwnedFd, settings: BarSettings, wayland_socket: String, notif
                         let bit = 1u32 << u32::from(sig);
                         if sig > 0 && registered & bit == 0 && new_sigs & bit == 0 {
                             new_sigs |= bit;
+                            let Some(signum) = rt_signum(sig) else { continue };
                             let flag = Arc::new(AtomicBool::new(false));
-                            let signum = libc::SIGRTMIN() + i32::from(sig);
                             let ok1 = signal_hook::flag::register(signum, Arc::clone(&flag)).is_ok();
                             let ok2 = rustix::io::dup(&wake_pipe_w)
                                 .ok()

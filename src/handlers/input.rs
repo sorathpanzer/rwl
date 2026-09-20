@@ -10,6 +10,7 @@ use smithay::backend::input::{
 use smithay::input::keyboard::{FilterResult, ModifiersState};
 use smithay::input::pointer::{AxisFrame, ButtonEvent, MotionEvent};
 use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
+use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::utils::{Logical, Point, SERIAL_COUNTER};
 
 use crate::config::Action;
@@ -566,7 +567,7 @@ impl Rwl {
                                 crate::grab::start_resize(
                                     self,
                                     w,
-                                    wayland_protocols::xdg::shell::server::xdg_toplevel::ResizeEdge::BottomRight,
+                                    xdg_toplevel::ResizeEdge::BottomRight,
                                 );
                             }
                             return;
