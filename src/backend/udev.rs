@@ -237,6 +237,15 @@ pub(crate) fn init(
                     {
                         tracing::error!("libinput_ctx.resume() failed");
                     }
+                    // Make the pointer cursor visible again on resume. The idle
+                    // hide-timer often elapses across a suspend, leaving
+                    // `cursor_hidden = true`, and a resume does not always yield a
+                    // pointer motion event to clear it — so the cursor would stay
+                    // invisible (observed on OpenBSD) until the pointer is moved.
+                    if state.cursor_hidden {
+                        state.cursor_hidden = false;
+                    }
+                    state.handle_cursor_activity();
                 }
             }
         })

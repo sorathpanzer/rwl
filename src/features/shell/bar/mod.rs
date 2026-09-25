@@ -158,6 +158,7 @@ use std::{
 use rustix::event::{poll, PollFd, PollFlags, Timespec};
 use rustix::fs::{fcntl_getfl, fcntl_setfl, OFlags};
 use rustix::io::Errno;
+use rustix::mm::{mmap, munmap, MapFlags, ProtFlags};
 
 use wayland_client::{
     protocol::{
@@ -177,6 +178,58 @@ use text::CustomText;
 /// Maximum number of run-prompt commands retained in a bar's history. Bounds
 /// `Bar::prompt_history` so it can't grow for the lifetime of the process.
 const PROMPT_HISTORY_CAP: usize = 100;
+
+/// A writable `MAP_SHARED` view of a bar's SHM pool.
+///
+/// Pixels are written through this shared mapping rather than `pwrite(2)` so they
+/// stay coherent with the compositor's own mapping of the same fd on every
+/// platform. On OpenBSD a `pwrite` to the pool's backing file is *not* reliably
+/// visible through an already-established `MAP_SHARED` mapping, so the compositor
+/// kept sampling the first frame's pixels and the bar appeared frozen until the
+/// surface (and thus the mapping) was recreated.
+struct ShmMap {
+    ptr: *mut u8,
+    len: usize,
+}
+
+// SAFETY: the mapping is owned by exactly one `Bar`, which lives on the bar
+// thread; the raw pointer is only touched through the `&self` methods below and
+// is unmapped exactly once in `Drop`.
+#[allow(unsafe_code)]
+unsafe impl Send for ShmMap {}
+
+impl ShmMap {
+    #[allow(unsafe_code)]
+    fn new(fd: &OwnedFd, len: usize) -> Option<Self> {
+        // SAFETY: `fd` is a shm file of at least `len` bytes; a null address hint
+        // lets the kernel pick the mapping location; released once in `Drop`.
+        let ptr = unsafe {
+            mmap(std::ptr::null_mut(), len, ProtFlags::READ | ProtFlags::WRITE, MapFlags::SHARED, fd.as_fd(), 0)
+        }
+        .ok()?;
+        Some(Self { ptr: ptr.cast(), len })
+    }
+
+    /// Copy `data` into the mapping at `offset`. Returns false if it would not fit.
+    #[allow(unsafe_code)]
+    fn write_at(&self, offset: usize, data: &[u8]) -> bool {
+        if offset.checked_add(data.len()).is_none_or(|end| end > self.len) {
+            return false;
+        }
+        // SAFETY: bounds checked above; the destination lies fully within the
+        // mapping and does not overlap the caller's source scratch buffer.
+        unsafe { std::ptr::copy_nonoverlapping(data.as_ptr(), self.ptr.add(offset), data.len()); }
+        true
+    }
+}
+
+impl Drop for ShmMap {
+    #[allow(unsafe_code)]
+    fn drop(&mut self) {
+        // SAFETY: `ptr`/`len` came from `mmap` above and are unmapped exactly once.
+        unsafe { let _unused = munmap(self.ptr.cast(), self.len); }
+    }
+}
 
 #[allow(clippy::struct_excessive_bools)]
 struct Bar {
@@ -228,6 +281,10 @@ struct Bar {
     /// rebuilds them. `buffer_busy[i]` is set when slot `i` is attached and
     /// cleared on its `wl_buffer.release`.
     shm_fd:       Option<OwnedFd>,
+    /// Writable shared mapping of `shm_fd`, used to write pixels coherently (see
+    /// [`ShmMap`]). `None` only if `mmap` failed, in which case draw falls back
+    /// to `pwrite`.
+    shm_map:      Option<ShmMap>,
     shm_pool:     Option<wl_shm_pool::WlShmPool>,
     buffers:      [Option<wl_buffer::WlBuffer>; 2],
     buffer_busy:  [bool; 2],
@@ -268,7 +325,7 @@ impl Bar {
             hidden: cfg.hidden, bottom: cfg.bottom, redraw: false, dead: false,
             configured: false, width: 0, height,
             stride: 0, bufsize: 0, textpadding, global_name,
-            shm_fd: None, shm_pool: None,
+            shm_fd: None, shm_map: None, shm_pool: None,
             buffers: [None, None], buffer_busy: [false, false],
             pool_bufsize: 0, scratch: Vec::new(),
             is_prompt_active: false,
@@ -292,6 +349,7 @@ impl Bar {
         self.buffers = [None, None];
         self.buffer_busy = [false, false];
         if let Some(pool) = self.shm_pool.take() { pool.destroy(); }
+        self.shm_map = None; // munmap before closing the backing fd
         self.shm_fd = None;
         self.pool_bufsize = 0;
     }
@@ -516,8 +574,16 @@ impl State {
         let buf0 = pool.create_buffer(0,        w, h, stride, wl_shm::Format::Argb8888, qh, ());
         let buf1 = pool.create_buffer(slot_off, w, h, stride, wl_shm::Format::Argb8888, qh, ());
 
+        // Shared mapping for coherent pixel writes (see `ShmMap`). If it fails we
+        // keep going and fall back to `pwrite` in `draw_frame_with_qh`.
+        let map = ShmMap::new(&fd, total);
+        if map.is_none() {
+            tracing::warn!("[bar] shm mmap failed; falling back to pwrite");
+        }
+
         let bar = &mut self.bars[idx];
         bar.shm_fd = Some(fd);
+        bar.shm_map = map;
         bar.shm_pool = Some(pool);
         bar.buffers = [Some(buf0), Some(buf1)];
         bar.buffer_busy = [false, false];
@@ -610,12 +676,18 @@ impl State {
         // one-off buffer so the frame isn't dropped.
         match self.bars[idx].buffer_busy.iter().position(|&busy| !busy) {
             Some(slot) => {
-                let offset = (slot * bufsize) as u64;
-                let wrote = self.bars[idx].shm_fd.as_ref().is_some_and(|fd|
-                    match pwrite_all_fd(fd, bytes, offset) {
-                        Ok(()) => true,
-                        Err(e) => { tracing::warn!("[bar] write pixels: {e}"); false }
-                    });
+                let offset = slot * bufsize;
+                // Prefer the shared mapping (coherent everywhere); fall back to
+                // pwrite only if mmap was unavailable.
+                let wrote = if let Some(map) = self.bars[idx].shm_map.as_ref() {
+                    map.write_at(offset, bytes)
+                } else {
+                    self.bars[idx].shm_fd.as_ref().is_some_and(|fd|
+                        match pwrite_all_fd(fd, bytes, offset as u64) {
+                            Ok(()) => true,
+                            Err(e) => { tracing::warn!("[bar] write pixels: {e}"); false }
+                        })
+                };
                 if wrote {
                     self.bars[idx].buffer_busy[slot] = true;
                     if let (Some(buffer), Some(surface)) =
@@ -1865,7 +1937,7 @@ fn run_event_loop(
                     state.stdin_buf = buf;
                 }
             }
-        }
+            }
 
         if blocks_ready {
             let mut drain = [0u8; 64];

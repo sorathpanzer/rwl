@@ -112,14 +112,15 @@ fn parent_pid(pid: i32) -> Option<i32> {
     // initial value before `sysctl` fills it in.
     let mut kp: libc::kinfo_proc = unsafe { core::mem::zeroed() };
     let mut len = size;
-    // SAFETY: `mib` has `mib.len()` valid elements; the output buffer is exactly
+    let namelen = libc::c_uint::try_from(mib.len()).ok()?;
+    // SAFETY: `mib` has `namelen` valid elements; the output buffer is exactly
     // `len` bytes (a single `kinfo_proc`); no new value is written (`newp` null).
     let rc = unsafe {
         libc::sysctl(
             mib.as_mut_ptr(),
-            mib.len() as libc::c_uint,
+            namelen,
             core::ptr::from_mut(&mut kp).cast(),
-            &mut len,
+            &raw mut len,
             core::ptr::null_mut(),
             0,
         )

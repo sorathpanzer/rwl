@@ -134,7 +134,7 @@ wayland-protocols-wlr    = { version = "0.3",  features = ["client"], optional =
 wayland-scanner          = { version = "0.31", optional = true }
 bytemuck                 = { version = "1",    optional = true }
 signal-hook              = { version = "0.4",  optional = true }
-rustix                   = { version = "1",    features = ["fs", "event", "pipe"] }
+rustix                   = { version = "1",    features = ["fs", "event", "pipe", "mm"] }
 # Native screen locker (`lock` feature). `pam` is Linux/other-only — OpenBSD has
 # no libpam and authenticates via bsd_auth (`auth_userokay`) instead, so `pam`
 # lives in a target-gated table below and is absent on OpenBSD.

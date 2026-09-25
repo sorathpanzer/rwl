@@ -3,7 +3,7 @@
 //! This module bridges smithay's input events to compositor actions.
 
 use smithay::backend::input::{
-    AbsolutePositionEvent, Axis, ButtonState, Event,
+    AbsolutePositionEvent, Axis, AxisSource, ButtonState, Event,
     InputBackend, KeyState, KeyboardKeyEvent, PointerAxisEvent, PointerButtonEvent,
     PointerMotionEvent,
 };
@@ -629,7 +629,18 @@ impl Rwl {
             pointer.frame(self);
         }
 
-        let mut frame = AxisFrame::new(event.time_msec()).source(event.source());
+        let source = event.source();
+        let mut frame = AxisFrame::new(event.time_msec()).source(source);
+
+        // Scroll-speed multiplier. libinput has no wheel scroll-speed knob, so we
+        // scale the reported deltas here. Wheel sources use the `mouse` factor,
+        // finger/continuous (touchpad) sources use the `touchpad` factor.
+        let cfg = crate::config::get();
+        let factor = match source {
+            AxisSource::Finger | AxisSource::Continuous => cfg.touchpad.scroll_factor,
+            _ => cfg.mouse.scroll_factor,
+        };
+        drop(cfg);
 
         // For finger-sourced (touchpad) scroll, libinput sends a final event
         // with amount = 0.0 when the fingers lift.  This MUST be forwarded as
@@ -641,9 +652,9 @@ impl Rwl {
             if v == 0.0 {
                 frame = frame.stop(Axis::Horizontal);
             } else {
-                frame = frame.value(Axis::Horizontal, v);
+                frame = frame.value(Axis::Horizontal, v * factor);
                 if let Some(d) = event.amount_v120(Axis::Horizontal) {
-                    frame = frame.v120(Axis::Horizontal, d as i32);
+                    frame = frame.v120(Axis::Horizontal, (d * factor) as i32);
                 }
             }
         }
@@ -651,9 +662,9 @@ impl Rwl {
             if v == 0.0 {
                 frame = frame.stop(Axis::Vertical);
             } else {
-                frame = frame.value(Axis::Vertical, v);
+                frame = frame.value(Axis::Vertical, v * factor);
                 if let Some(d) = event.amount_v120(Axis::Vertical) {
-                    frame = frame.v120(Axis::Vertical, d as i32);
+                    frame = frame.v120(Axis::Vertical, (d * factor) as i32);
                 }
             }
         }

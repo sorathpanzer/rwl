@@ -73,9 +73,6 @@ Linux-compatible; keep them only on your OpenBSD build if you prefer.
 ```toml
 [patch.crates-io]
 # DRM node-type detection fix for OpenBSD (matches rwl's drm 0.14 line).
-drm     = { git = "https://github.com/tobhe/drm-rs", branch = "openbsd-0.14" }
-drm-ffi = { git = "https://github.com/tobhe/drm-rs", branch = "openbsd-0.14" }
-drm-sys = { git = "https://github.com/tobhe/drm-rs", branch = "openbsd-0.14" }
 # If keyboard init fails to dlopen libxkbcommon, add tobhe's xkbcommon-dl fork.
 # If a libc symbol/struct is missing at build time, add tobhe's libc fork.
 ```

@@ -119,7 +119,7 @@ const POINTER_KEYS: &[&str] = &[
     "tap_to_click", "tap_and_drag", "drag_lock", "natural_scrolling",
     "disable_while_typing", "left_handed", "middle_button_emulation",
     "scroll_method", "click_method", "accel_profile", "accel_speed",
-    "tap_button_map",
+    "tap_button_map", "scroll_factor",
 ];
 
 // Global cursor / pointer-focus settings (the `cursor` table).
@@ -370,6 +370,7 @@ fn lua_pointer_cfg(t: Option<&mlua::Table>, d: PointerCfg) -> PointerCfg {
         accel_profile:  lua_accel_profile(t, d.accel_profile),
         accel_speed:    lua_f64(t, "accel_speed", d.accel_speed),
         tap_button_map: lua_tap_button_map(t, d.tap_button_map),
+        scroll_factor:  lua_f64(t, "scroll_factor", d.scroll_factor),
     }
 }
 

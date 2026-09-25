@@ -55,6 +55,10 @@ pub(crate) struct PointerCfg {
     pub accel_profile:           AccelProfile,
     pub accel_speed:             f64,
     pub tap_button_map:          TapButtonMap,
+    /// Multiplier applied to scroll (axis) deltas in the compositor. libinput
+    /// has no scroll-speed setting for wheels, so this scales the reported
+    /// amount: `2.0` scrolls twice as fast, `0.5` half. `1.0` = unchanged.
+    pub scroll_factor:           f64,
 }
 
 impl PointerCfg {
@@ -73,6 +77,7 @@ impl PointerCfg {
             accel_profile:  AccelProfile::Adaptive,
             accel_speed:    0.0,
             tap_button_map: TapButtonMap::LeftRightMiddle,
+            scroll_factor:  1.0,
         }
     }
 
