@@ -217,6 +217,21 @@ pub(crate) fn init(
             match event {
                 SessionEvent::PauseSession => {
                     tracing::info!("Session paused — suspending libinput and DRM devices");
+                    // Synthesize releases for every physically-held key BEFORE the
+                    // input fds are closed. libinput_ctx.suspend() below closes the
+                    // device fds, so the release for a key held at suspend time is
+                    // never delivered; the seat would keep it in
+                    // forwarded_pressed_keys and the next wl_keyboard.enter on resume
+                    // would tell the focused client the key is still down —
+                    // producing runaway client-side auto-repeat with nothing pressed.
+                    // release_source is a teardown path that forwards the releases
+                    // without running the input filter, so it can't trip a keybind.
+                    if let Some(kb) = state.keyboard.clone() {
+                        kb.release_source(
+                            state,
+                            smithay::input::keyboard::KeyboardSource::MAIN,
+                        );
+                    }
                     // Suspend libinput before pausing DRM so its device fds are
                     // closed via libseat before logind revokes them.  Without this
                     // call, libinput holds stale revoked fds and generates no events
@@ -1701,6 +1716,33 @@ impl Rwl {
                 }
             });
         }
+    }
+
+    /// Recover input and display after a suspend/resume that produced no libseat
+    /// session event (OpenBSD `apm`/`zzz`). Cycles libinput so it re-opens its
+    /// device fds (wsmouse/wskbd), forces a DRM state reset + re-render, and makes
+    /// the cursor visible again. Invoked via `rwl msg resume` from an apmd hook.
+    pub(crate) fn ipc_resume(&mut self) {
+        // Suspend then resume libinput so it drops and re-grabs its device fds
+        // through the session — without this the pointer/keyboard stay dead after
+        // an apm resume.
+        if let Some(backend) = self.backend_data_opt() {
+            backend.libinput_ctx.suspend();
+            if backend.libinput_ctx.resume() == Err(()) {
+                tracing::warn!("ipc_resume: libinput resume failed");
+            }
+        }
+        // Re-open/reset DRM devices (reset_state + re-render existing outputs).
+        self.open_pending_devices();
+
+        // Cycling libinput above drops the key-release that was in flight when this
+        // ran (e.g. the Enter that executed `rwl msg resume`), so release anything
+        // smithay still tracks as pressed to avoid a stuck, repeating key.
+        self.release_all_pressed_keys();
+
+        // The idle timer may have hidden the (now frozen) cursor; show it again.
+        self.cursor_hidden = false;
+        self.handle_cursor_activity();
     }
 
     fn backend_data_opt(&mut self) -> Option<&mut UdevData> {

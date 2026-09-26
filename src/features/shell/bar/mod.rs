@@ -2085,6 +2085,10 @@ pub(crate) fn start(reader: PipeReader, settings: BarSettings, wayland_socket: S
 /// numbers are unsupported (those blocks still refresh on their interval).
 /// Other platforms have no signal-driven refresh.
 #[cfg(target_os = "linux")]
+// Always Some on Linux, but the openbsd/other variants below return None for
+// unsupported signals, so the uniform Option signature is required by the
+// shared call sites.
+#[allow(clippy::unnecessary_wraps)]
 fn rt_signum(sig: u8) -> Option<i32> {
     Some(libc::SIGRTMIN() + i32::from(sig))
 }

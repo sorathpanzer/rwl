@@ -2048,6 +2048,35 @@ impl Rwl {
             .ok();
     }
 
+    /// Send a synthetic release for every key smithay still tracks as pressed.
+    ///
+    /// Used after transitions that can swallow or drop a real key-release — screen
+    /// unlock (keys pressed while locked are intercepted, so their release is never
+    /// forwarded) and suspend/resume (libinput is cycled). Without this, on the
+    /// next `set_focus` the client receives an `enter` listing the still-pressed
+    /// key but never a release, so it treats the key as stuck-down and repeats it
+    /// forever. Call this before focus returns to a client.
+    pub(crate) fn release_all_pressed_keys(&mut self) {
+        let Some(kb) = self.keyboard.clone() else { return };
+        let pressed = kb.pressed_keys();
+        if pressed.is_empty() {
+            return;
+        }
+        #[allow(clippy::cast_possible_truncation)]
+        let time = std::time::Duration::from(self.clock.now()).as_millis() as u32;
+        for keycode in pressed {
+            let serial = SERIAL_COUNTER.next_serial();
+            kb.input::<(), _>(
+                self,
+                keycode,
+                smithay::backend::input::KeyState::Released,
+                serial,
+                time,
+                |_, _, _| smithay::input::keyboard::FilterResult::Forward,
+            );
+        }
+    }
+
     #[must_use]
     pub(crate) const fn dir_to_monitor(&self, from: usize, dir: i32) -> Option<usize> {
         if self.monitors.len() < 2 {

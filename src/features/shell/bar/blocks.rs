@@ -10,7 +10,7 @@ const CMDLENGTH: usize = 50;
 /// (`interval == 0`) blocks are re-run every tick.
 ///
 /// Such a block normally runs once at startup and then only on its signal.
-/// But the services those blocks query (PipeWire/`pactl`, the network stack,
+/// But the services those blocks query (`PipeWire`/`pactl`, the network stack,
 /// …) frequently aren't up yet the instant the compositor starts, so the
 /// command returns an empty value and — because it still exits `0` — the
 /// stale result (`🔊%`, an empty percentage, …) is cached until the next

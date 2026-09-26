@@ -116,6 +116,44 @@ Run from a text VT (stop `xenodm` first), with seatd running and your user in th
 rwl -s ~/.config/rwl/startup.sh
 ```
 
+## Screen lock (`rwl msg lock`)
+
+The native lock authenticates with `bsd_auth` (`auth_userokay`), which execs
+`/usr/libexec/auth/login_passwd` — runnable only by root and members of the
+**`auth`** group. Add your user to it (and re-login):
+
+```
+doas usermod -G auth,wheel <youruser>   # include every group you already had —
+                                        # OpenBSD's usermod -G REPLACES the set
+id                                       # confirm: auth + wheel present
+```
+
+If your user is *not* in `auth`, rwl refuses to lock (it would trap the session
+with no way to unlock) and shows a red 5-second notice on the bar telling you to
+add the group, rather than locking.
+
+## Suspend / resume (`zzz`, `ZZZ`)
+
+OpenBSD's `apm` suspend does **not** go through seatd, so the compositor never
+receives a libseat session pause/resume event. After waking, libinput's device
+fds are stale and pointer/keyboard input is dead (the mouse cursor disappears).
+
+rwl recovers **automatically** — no apmd hook required. Since apm gives the
+compositor no session event (and OpenBSD's monotonic clock counts suspended time),
+rwl detects the wake from a wall-clock jump between its 250 ms internal ticks (the
+timer can't fire while suspended). On detecting it, rwl cycles libinput (re-grabs
+`wsmouse`/`wskbd`), resets DRM, releases any stuck keys, and shows the cursor —
+within ~250 ms of waking.
+
+If you ever need to trigger the same recovery by hand:
+
+```
+rwl msg resume
+```
+
+(Bindable from your config, e.g. spawn `rwl msg resume`, if you want a manual
+fallback.)
+
 ## Status / verify-on-target
 
 - **Verified on Linux:** the Smithay patch compiles and rwl builds against it with

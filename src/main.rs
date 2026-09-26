@@ -294,12 +294,37 @@ fn run(startup_cmd: Option<String>) -> Result<()> {
     // Poll for title/app-id changes that arrive without a wl_surface.commit
     // (Firefox tab-switch pattern). 250 ms is imperceptible to users and avoids
     // the 60 wakeups/sec that a 16 ms event-loop timeout would cause when idle.
+    //
+    // On OpenBSD this same tick doubles as suspend/resume detection: apm (`zzz`)
+    // emits no libseat session event, and OpenBSD's monotonic clock counts
+    // suspended time, so the only reliable in-process signal is a wall-clock jump.
+    // The timer cannot fire while the machine is suspended, so a gap between ticks
+    // far larger than the 250 ms interval means we just resumed — re-initialise
+    // input/DRM (across a suspend the pointer device `wsmouse` goes silent, killing
+    // the cursor) exactly as `rwl msg resume` does. Normal operation keeps ticking
+    // every 250 ms, so a multi-second gap only ever means suspend: no false
+    // positives, and no dependency on the monotonic clock freezing.
+    #[cfg(target_os = "openbsd")]
+    let mut last_tick = std::time::SystemTime::now();
     loop_handle
         .insert_source(
             smithay::reexports::calloop::timer::Timer::from_duration(
                 std::time::Duration::from_millis(250),
             ),
-            |_, (), state: &mut Rwl| {
+            move |_, (), state: &mut Rwl| {
+                #[cfg(target_os = "openbsd")]
+                {
+                    let now = std::time::SystemTime::now();
+                    if now.duration_since(last_tick).unwrap_or_default()
+                        > std::time::Duration::from_secs(5)
+                    {
+                        tracing::info!(
+                            "Resume from suspend detected (wall-clock jump) — re-initialising input/DRM"
+                        );
+                        state.ipc_resume();
+                    }
+                    last_tick = now;
+                }
                 state.check_toplevel_titles();
                 smithay::reexports::calloop::timer::TimeoutAction::ToDuration(
                     std::time::Duration::from_millis(250),

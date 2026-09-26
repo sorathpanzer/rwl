@@ -34,6 +34,7 @@
 //! rwl msg spawn <cmd> [args…]
 //! rwl msg focusurgent
 //! rwl msg reloadconfig
+//! rwl msg resume                           (re-init input/DRM after apm resume)
 //! rwl msg quit
 //! rwl msg info [title|class|appid|tags|fullscreen|floating]
 //! rwl msg togglebar        (bar feature)
@@ -246,7 +247,7 @@ fn run_wm(args: &[String]) {
 
         // Argumentless commands.
         "cyclelayout" | "zoom" | "viewprev" | "killclient" | "togglefloating" | "togglefullscreen"
-        | "togglepassthrough" | "reloadconfig" | "focusurgent" | "quit" => {
+        | "togglepassthrough" | "reloadconfig" | "focusurgent" | "resume" | "quit" => {
             wm_send(cmd);
         }
 

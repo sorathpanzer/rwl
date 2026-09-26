@@ -169,7 +169,7 @@ fn find_monitor_idx(state: &Rwl, name: &str) -> Option<usize> {
 #[cfg(test)]
 const WM_COMMANDS: &[&str] = &[
     // Queries / streams and bespoke handlers that do not go through `Action`.
-    "status", "clients", "info", "subscribe", "watch", "focusurgent",
+    "status", "clients", "info", "subscribe", "watch", "focusurgent", "resume",
     "view", "toggleview", "setlayout", "wallpaper",
     // Action-backed commands.
     "tag", "toggletag", "focusstack", "incnmaster", "setmfact",
@@ -378,6 +378,11 @@ fn cmd_dispatch(line: &str, stream: &mut UnixStream, state: &mut Rwl) {
         "togglepassthrough" => state.dispatch(&Action::TogglePassthrough),
         "reloadconfig"      => state.dispatch(&Action::ReloadConfig),
         "quit"              => state.dispatch(&Action::Quit),
+        // Re-initialise input/DRM after a suspend/resume. OpenBSD's apm suspend
+        // (`zzz`) does not emit libseat session events, so the compositor never
+        // resumes libinput on its own; an apmd resume hook runs `rwl msg resume`
+        // to recover pointer/keyboard input and the cursor.
+        "resume"            => state.ipc_resume(),
         "focusurgent"       => state.focus_urgent(),
         #[cfg(feature = "bar")]
         "togglebar"         => state.dispatch(&Action::ToggleBar),

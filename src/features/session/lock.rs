@@ -184,6 +184,23 @@ pub(crate) fn lock(state: &mut Rwl) {
         return;
     }
 
+    // OpenBSD: refuse to lock if the user cannot run the password helper — the
+    // screen would lock with no possible way to unlock. Warn on the bar instead.
+    #[cfg(target_os = "openbsd")]
+    if !can_bsd_auth() {
+        tracing::warn!(
+            "[lock] refusing to lock: cannot exec login_passwd (add your user to the 'auth' group)"
+        );
+        #[cfg(feature = "bar")]
+        {
+            let user = current_user().unwrap_or_else(|| "<username>".to_owned());
+            crate::features::shell::bar::send_bar_command(&format!(
+                "all title 5 #ff3333 Add your user to the auth group: doas usermod -G auth {user}"
+            ));
+        }
+        return;
+    }
+
     let (tx, channel): (Sender<bool>, Channel<bool>) = channel();
     let Ok(auth_source) = state.loop_handle.insert_source(channel, |event, (), state| {
         if let ChannelEvent::Msg(ok) = event {
@@ -357,6 +374,10 @@ fn unlock(state: &mut Rwl) {
     #[cfg(feature = "hooks")]
     crate::features::hooks::unlock(state);
 
+    // Clear any keys held during the lock before focus returns to a client, or the
+    // client sees the key as stuck-down (its release was swallowed by the lock) and
+    // repeats it forever.
+    state.release_all_pressed_keys();
     if let Some(kb) = state.keyboard.clone() {
         let surface = state
             .focused_window()
@@ -388,6 +409,18 @@ fn current_user() -> Option<String> {
         .or_else(|_| std::env::var("LOGNAME"))
         .ok()
         .filter(|u| !u.is_empty())
+}
+
+/// Whether this user can actually authenticate via `bsd_auth` — i.e. can execute
+/// the `login_passwd` helper, which is `setuid root, group auth, mode 0550`. Only
+/// root and members of the `auth` group can run it; without it `auth_userokay`
+/// always fails, so locking would trap the session with no way to unlock.
+#[cfg(target_os = "openbsd")]
+#[allow(unsafe_code)]
+fn can_bsd_auth() -> bool {
+    // SAFETY: `access` only reads the static NUL-terminated path and tests the
+    // X_OK permission bit; it has no other effects.
+    unsafe { libc::access(c"/usr/libexec/auth/login_passwd".as_ptr(), libc::X_OK) == 0 }
 }
 
 /// Blocking PAM password check. Runs on a worker thread. Fails closed on any
