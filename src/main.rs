@@ -40,6 +40,13 @@ use state::Rwl;
 // ---------------------------------------------------------------------------
 
 fn main() {
+    // `doas rwl __chkpwd`: root-side unlock password check for the native lock
+    // (FreeBSD/NetBSD). Must run before anything else touches the environment.
+    #[cfg(all(feature = "lock", any(target_os = "freebsd", target_os = "netbsd")))]
+    if std::env::args().nth(1).as_deref() == Some(features::lock::CHKPWD_ARG) {
+        std::process::exit(features::lock::chkpwd_main());
+    }
+
     // Handle `rwl msg …` before any compositor initialisation.
     #[cfg(feature = "ipc")]
     {

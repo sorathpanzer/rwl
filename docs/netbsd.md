@@ -166,10 +166,11 @@ swallow,xwayland"
 
 ## 6. Screen lock
 
-Unlike OpenBSD (which uses `bsd_auth`), NetBSD has PAM — the build links
-`-lpam` and the `pam` crate compiles, so the standard PAM lock path is used, as
-on Linux. No `auth`-group dance is required. *(Verify the PAM service
-configuration resolves at runtime on target.)*
+NetBSD has PAM, but as on FreeBSD its `pam_unix` cannot read password hashes
+from an unprivileged process. The lock therefore checks passwords by re-running
+rwl through `doas` (`pkgin install doas`). Set it up as described in
+[freebsd.md](freebsd.md#screen-lock-rwl-msg-lock), with the doas rule in
+`/usr/pkg/etc/doas.conf` and the PAM service at `/etc/pam.d/rwl-lock`.
 
 ## Open items to confirm on hardware
 

@@ -72,6 +72,23 @@ const RED: [f32; 4] = [0.90, 0.16, 0.16, 1.0];
 #[cfg(not(target_os = "openbsd"))]
 const PAM_SERVICE: &str = "rwl-lock";
 
+/// Hidden first argument that turns `rwl` into its own root-side password
+/// checker (see [`chkpwd_main`]). FreeBSD/NetBSD `pam_unix` cannot read password
+/// hashes from an unprivileged process (only root can read `/etc/master.passwd`)
+/// and, unlike Linux, has no `unix_chkpwd` helper — so the compositor re-runs
+/// itself through a narrow `doas` rule for each unlock attempt.
+#[cfg(any(target_os = "freebsd", target_os = "netbsd"))]
+pub(crate) const CHKPWD_ARG: &str = "__chkpwd";
+
+/// Exit status of `rwl __chkpwd` when stdin is empty: a probe proving the
+/// `doas` rule works, without attempting (or rate-limiting) a password check.
+#[cfg(any(target_os = "freebsd", target_os = "netbsd"))]
+const CHKPWD_PROBE_OK: i32 = 3;
+
+/// `doas` locations: FreeBSD ports, then NetBSD pkgsrc.
+#[cfg(any(target_os = "freebsd", target_os = "netbsd"))]
+const DOAS_PATHS: [&str; 2] = ["/usr/local/bin/doas", "/usr/pkg/bin/doas"];
+
 /// Phase of the locked session, driving the bar colour.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Phase {
@@ -198,6 +215,18 @@ pub(crate) fn lock(state: &mut Rwl) {
                 "all title 5 #ff3333 Add your user to the auth group: doas usermod -G auth {user}"
             ));
         }
+        return;
+    }
+
+    // FreeBSD/NetBSD: refuse to lock unless the `doas` password check works —
+    // otherwise every attempt would fail and trap the session.
+    #[cfg(any(target_os = "freebsd", target_os = "netbsd"))]
+    if let Err(reason) = can_chkpwd() {
+        tracing::warn!("[lock] refusing to lock: {reason}");
+        #[cfg(feature = "bar")]
+        crate::features::shell::bar::send_bar_command(&format!(
+            "all title 5 #ff3333 Lock disabled: {reason} (see docs/freebsd.md)"
+        ));
         return;
     }
 
@@ -423,10 +452,17 @@ fn can_bsd_auth() -> bool {
     unsafe { libc::access(c"/usr/libexec/auth/login_passwd".as_ptr(), libc::X_OK) == 0 }
 }
 
-/// Blocking PAM password check. Runs on a worker thread. Fails closed on any
-/// error (missing service, wrong password, PAM misconfiguration).
-#[cfg(not(target_os = "openbsd"))]
+/// Blocking password check. Linux and other PAM targets check in-process (their
+/// `pam_unix` has the setuid `unix_chkpwd` helper). Runs on a worker thread.
+#[cfg(not(any(target_os = "openbsd", target_os = "freebsd", target_os = "netbsd")))]
 fn authenticate(user: &str, password: &str) -> bool {
+    pam_authenticate(user, password)
+}
+
+/// Blocking PAM password check. Fails closed on any error (missing service,
+/// wrong password, PAM misconfiguration).
+#[cfg(not(target_os = "openbsd"))]
+fn pam_authenticate(user: &str, password: &str) -> bool {
     match pam::Authenticator::with_password(PAM_SERVICE) {
         Ok(mut auth) => {
             auth.get_handler().set_credentials(user, password);
@@ -436,6 +472,123 @@ fn authenticate(user: &str, password: &str) -> bool {
             tracing::warn!("[lock] PAM init failed for service {PAM_SERVICE:?}: {e}");
             false
         }
+    }
+}
+
+/// Build `doas -n <this rwl> __chkpwd` with a scrubbed environment. `-n` makes
+/// doas fail instead of prompting when no `nopass` rule matches.
+#[cfg(any(target_os = "freebsd", target_os = "netbsd"))]
+fn chkpwd_command() -> Result<std::process::Command, String> {
+    let doas = DOAS_PATHS
+        .iter()
+        .find(|p| std::path::Path::new(p).is_file())
+        .ok_or_else(|| "doas is not installed".to_owned())?;
+    let exe = std::env::current_exe().map_err(|e| format!("cannot resolve rwl path: {e}"))?;
+    let mut cmd = std::process::Command::new(doas);
+    cmd.arg("-n")
+        .arg(exe)
+        .arg(CHKPWD_ARG)
+        .env_clear()
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    Ok(cmd)
+}
+
+/// Whether unlocking can work: the running `rwl` binary is root-owned and not
+/// group/world-writable (a `doas` rule on a user-writable binary would be a
+/// root escalation), and the `doas` rule answers a probe.
+#[cfg(any(target_os = "freebsd", target_os = "netbsd"))]
+fn can_chkpwd() -> Result<(), String> {
+    use std::os::unix::fs::MetadataExt;
+
+    let exe = std::env::current_exe().map_err(|e| format!("cannot resolve rwl path: {e}"))?;
+    let meta = std::fs::metadata(&exe).map_err(|e| format!("cannot stat {}: {e}", exe.display()))?;
+    if meta.uid() != 0 || meta.mode() & 0o022 != 0 {
+        return Err(format!("{} must be owned by root and not writable by others", exe.display()));
+    }
+    let status = chkpwd_command()?
+        .stdin(std::process::Stdio::null())
+        .status()
+        .map_err(|e| format!("cannot run doas: {e}"))?;
+    if status.code() == Some(CHKPWD_PROBE_OK) {
+        Ok(())
+    } else {
+        Err(format!("no doas nopass rule for '{} {CHKPWD_ARG}'", exe.display()))
+    }
+}
+
+/// Blocking password check via `doas rwl __chkpwd`. Runs on a worker thread and
+/// fails closed. The root side takes the user from `DOAS_USER` (set by doas
+/// itself), so `_user` is not passed; the password goes over a pipe.
+#[cfg(any(target_os = "freebsd", target_os = "netbsd"))]
+fn authenticate(_user: &str, password: &str) -> bool {
+    use std::io::Write;
+
+    let child = chkpwd_command().and_then(|mut cmd| {
+        cmd.stdin(std::process::Stdio::piped()).spawn().map_err(|e| e.to_string())
+    });
+    let mut child = match child {
+        Ok(child) => child,
+        Err(e) => {
+            tracing::warn!("[lock] failed to run doas password check: {e}");
+            return false;
+        }
+    };
+    // Dropping stdin after the write closes the pipe so the checker sees EOF.
+    let wrote = child.stdin.take().is_some_and(|mut stdin| {
+        stdin.write_all(password.as_bytes()).and_then(|()| stdin.write_all(b"\n")).is_ok()
+    });
+    let ok = child.wait().is_ok_and(|status| status.success());
+    wrote && ok
+}
+
+/// Root side of the unlock check: `doas rwl __chkpwd`, dispatched from `main`
+/// before any compositor setup. Reads a newline-terminated password from stdin
+/// and checks it against PAM for `DOAS_USER`. Returns the process exit status:
+/// 0 = match, 1 = no match / error (after a 2 s delay against brute forcing),
+/// [`CHKPWD_PROBE_OK`] = empty stdin probe.
+#[cfg(any(target_os = "freebsd", target_os = "netbsd"))]
+#[allow(unsafe_code)]
+pub(crate) fn chkpwd_main() -> i32 {
+    use std::io::Read;
+
+    // SAFETY: `geteuid` has no preconditions or side effects.
+    if unsafe { libc::geteuid() } != 0 {
+        return 1;
+    }
+    // doas always sets DOAS_USER to the invoking user, overriding the caller's
+    // environment, and the rule pins the arguments — so a caller can only ever
+    // check their own password.
+    let Some(user) = std::env::var("DOAS_USER").ok().filter(|u| !u.is_empty()) else {
+        return 1;
+    };
+
+    // Fixed buffer: one extra byte for the terminating newline.
+    let mut buf = Zeroizing::new([0u8; PASSWORD_CAP + 1]);
+    let mut len = 0;
+    let mut stdin = std::io::stdin().lock();
+    while len < buf.len() && !buf[..len].contains(&b'\n') {
+        match stdin.read(&mut buf[len..]) {
+            Ok(0) => break,
+            Ok(n) => len += n,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(_) => return 1,
+        }
+    }
+    if len == 0 {
+        return CHKPWD_PROBE_OK;
+    }
+
+    let ok = buf[..len]
+        .iter()
+        .position(|&b| b == b'\n')
+        .and_then(|end| std::str::from_utf8(&buf[..end]).ok())
+        .is_some_and(|password| !password.is_empty() && pam_authenticate(&user, password));
+    if ok {
+        0
+    } else {
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        1
     }
 }
 

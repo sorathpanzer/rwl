@@ -1,0 +1,5 @@
+# PAM service for rwl's native screen lock (`rwl msg lock`).
+# FreeBSD: install to /usr/local/etc/pam.d/rwl-lock (or /etc/pam.d/rwl-lock).
+# NetBSD:  install to /etc/pam.d/rwl-lock.
+auth		include		system
+account		include		system
