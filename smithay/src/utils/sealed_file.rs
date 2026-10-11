@@ -65,7 +65,15 @@ impl SealedFile {
         // loop a couple times if it exists.
         let mut n = 0;
         let (shm_name, mut file) = loop {
-            let mut shm_name = name.to_bytes().to_owned();
+            // POSIX shm_open names must begin with a single slash and contain no
+            // other slashes. NetBSD enforces this strictly: a name without the
+            // leading slash fails with EINVAL ("Invalid argument", os error 22).
+            // Linux/glibc is lenient, so the missing slash went unnoticed there.
+            // The incoming `name` contains no slashes, so prepending one is safe
+            // and POSIX-correct on every platform that reaches this branch.
+            let mut shm_name = Vec::with_capacity(name.to_bytes().len() + 8);
+            shm_name.push(b'/');
+            shm_name.extend_from_slice(name.to_bytes());
             shm_name.push(b'-');
             shm_name.extend((0..7).map(|_| rng.sample(Alphanumeric)));
             let fd = shm::open(

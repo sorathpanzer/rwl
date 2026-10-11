@@ -124,7 +124,7 @@ impl DrmSyncPoint {
     }
 
     /// Create an eventfd that will be signaled by the syncpoint
-    #[cfg(target_os = "openbsd")]
+    #[cfg(any(target_os = "openbsd", target_os = "netbsd"))]
     pub fn eventfd(&self) -> io::Result<Arc<OwnedFd>> {
         // OpenBSD lacks eventfd(2); syncobj eventfd is never used here because
         // `supports_syncobj_eventfd` reports unsupported on this platform.
@@ -132,7 +132,7 @@ impl DrmSyncPoint {
     }
 
     /// Create an eventfd that will be signaled by the syncpoint
-    #[cfg(not(target_os = "openbsd"))]
+    #[cfg(not(any(target_os = "openbsd", target_os = "netbsd")))]
     pub fn eventfd(&self) -> io::Result<Arc<OwnedFd>> {
         let fd = rustix::event::eventfd(
             0,

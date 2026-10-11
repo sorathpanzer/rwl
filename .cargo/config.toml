@@ -1,0 +1,10 @@
+# NetBSD: pkgsrc installs libraries in /usr/pkg/lib, which is NOT on the
+# linker's default search path. Without this, linking fails on the pkgsrc-only
+# libs (fcft, xkbcommon, gbm) even when they are installed — pixman-1 links
+# because it ships in the base X11R7 set (/usr/X11R7/lib).
+#
+# -L adds the search path at link time; -Wl,-R sets the runtime rpath so the
+# binary also runs without LD_LIBRARY_PATH. This section applies ONLY to the
+# NetBSD target, so Linux/Nix and OpenBSD builds are unaffected.
+[target.x86_64-unknown-netbsd]
+rustflags = ["-L", "/usr/pkg/lib", "-C", "link-args=-Wl,-R/usr/pkg/lib"]

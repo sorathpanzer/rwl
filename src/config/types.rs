@@ -240,6 +240,11 @@ pub(crate) enum Action {
     /// mid-chord — which would otherwise make e.g. Firefox exit fullscreen.
     /// Not user-bindable and not exposed over IPC.
     Consumed,
+    /// Inject one or more keysyms (tapped press+release) into the focused
+    /// client, as if those keys had been typed — the `keyaction` binding field.
+    /// Lets a key or mouse button be remapped to a keystroke the app sees (e.g.
+    /// mouse side-button → `q` in mpv). Stored as raw keysym values.
+    SendKeys(Vec<u32>),
 }
 
 #[cfg(feature = "ipc")]
@@ -308,6 +313,8 @@ impl Action {
             #[cfg(feature = "lock")]
             Self::LockConsume => None,
             Self::Consumed => None,
+            // Local input injection, not a socket command.
+            Self::SendKeys(_) => None,
         }
     }
 }
@@ -324,6 +331,11 @@ pub(crate) struct KeyBind {
     pub mods:   u32,
     pub keysym: u32,
     pub action: Action,
+    /// When set, this binding only fires while a window whose app id *contains*
+    /// this string is focused (substring match, matching the `Rule` convention).
+    /// `None` means the binding applies regardless of focus and acts as the
+    /// fallback when no app-specific binding matches.
+    pub app_id: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -331,6 +343,10 @@ pub(crate) struct ButtonBind {
     pub mods:   u32,
     pub button: u32,
     pub action: Action,
+    /// When set, this binding only fires while a window whose app id *contains*
+    /// this string is focused (same convention as [`KeyBind::app_id`]). `None`
+    /// is the fallback when no app-specific binding matches.
+    pub app_id: Option<String>,
 }
 
 /// Per-tag layout assignment.

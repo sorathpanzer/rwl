@@ -288,6 +288,53 @@ is the mod-tap gesture (see below).
 
 **Buttons** (`button`): `"left"`, `"right"`, `"middle"`, or a raw evdev code.
 
+**Per-app bindings** (`app_id`): add `app_id = "substring"` to a key *or button*
+entry and it only fires while a window whose app id *contains* that substring is
+focused (same substring convention as [Rules](#rules)). The same `mods`+`key`
+(or `mods`+`button`) with no `app_id` is the fallback for every other app.
+Resolution is by priority — an `app_id` binding always wins when the focused app
+matches — not by table order, so the fallback can be listed in either position:
+
+```lua
+keys = {
+  { mods = "M", key = "q", action = "kill_client", app_id = "mpv" }, -- only in mpv
+  { mods = "M", key = "q", action = "zoom" },                        -- everything else
+}
+
+buttons = {
+  { mods = "", button = "275", action = "toggle_fullscreen", app_id = "mpv" },
+  { mods = "", button = "275", action = "view_prev" },               -- everything else
+}
+```
+
+`app_id` is the window's live app id (Wayland `app_id` / XWayland class); it is
+unset until the client announces it, during which only the fallback matches. For
+*logic* branching inside one binding instead of separate entries, see
+[Key-triggered Lua macros](#key-triggered-lua-macros-call) with `rwl.focused():app_id()`.
+
+**Key remapping** (`keyaction`): instead of `action`, a key or button entry may
+set `keyaction = "<keysym>"` to *inject* that keystroke into the focused client —
+as if you had typed it. The value is one or more XKB keysym names (whitespace
+separated); each is tapped (press+release) in order, with modifiers forced off,
+using a throwaway keymap so the compositor's own keyboard state is untouched.
+Combine with `app_id` to remap only inside one app:
+
+```lua
+buttons = {
+  -- mouse side-button acts as "q" (quit) only while mpv is focused
+  { mods = "", button = "275", keyaction = "q", app_id = "mpv" },
+  { mods = "", button = "275", action = "view_prev" },   -- elsewhere
+}
+
+keys = {
+  { mods = "M", key = "c", keyaction = "Escape" },        -- Mod+c sends Escape
+}
+```
+
+A binding has *either* `action` or `keyaction` (if both are present `keyaction`
+wins). Injection is a single tap, not a held key — right for app shortcuts like
+mpv's `q`, not for holding a movement key in a game.
+
 ### Actions
 
 Every action name accepted in a binding (from `parse_action` in

@@ -387,6 +387,17 @@ impl Rwl {
             // Internal no-op: a swallowed key event (e.g. the release of a bound
             // key). Nothing to do — the point is that it never reached a client.
             Action::Consumed => {}
+            // Inject the configured keysyms (tapped) into the focused client, as
+            // if those keys had been typed. Uses a throwaway keymap internally,
+            // so the seat's own xkb/modifier state is untouched.
+            Action::SendKeys(syms) => {
+                if let Some(kb) = self.keyboard.clone() {
+                    let keysyms: Vec<smithay::input::keyboard::Keysym> =
+                        syms.iter().map(|&s| smithay::input::keyboard::Keysym::new(s)).collect();
+                    kb.inject_text_keysyms(self, &keysyms);
+                }
+                return;
+            }
         }
 
         // Fire on_tag_switch if the selected monitor's tags changed (and we did

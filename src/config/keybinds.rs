@@ -11,7 +11,7 @@ use super::ScratchCmd;
 // ─── default bindings ─────────────────────────────────────────────────────────
 
 const fn k(mods: u32, keysym: u32, action: Action) -> KeyBind {
-    KeyBind { mods, keysym, action }
+    KeyBind { mods, keysym, action, app_id: None }
 }
 
 #[allow(clippy::too_many_lines)]
@@ -163,9 +163,9 @@ pub(super) fn default_keys() -> Vec<KeyBind> {
 pub(super) fn default_buttons() -> Vec<ButtonBind> {
     const M: u32 = MODKEY;
     vec![
-        ButtonBind { mods: M, button: 0x110, action: Action::Move            },
-        ButtonBind { mods: M, button: 0x112, action: Action::ToggleFloating  },
-        ButtonBind { mods: M, button: 0x111, action: Action::Resize          },
+        ButtonBind { mods: M, button: 0x110, action: Action::Move,           app_id: None },
+        ButtonBind { mods: M, button: 0x112, action: Action::ToggleFloating, app_id: None },
+        ButtonBind { mods: M, button: 0x111, action: Action::Resize,         app_id: None },
     ]
 }
 
@@ -218,6 +218,24 @@ fn parse_scratch_cmd(tbl: &mlua::Table) -> Option<ScratchCmd> {
     let key = key_str.chars().next()?;
     let cmd = lua_str_array(tbl, "cmd");
     Some(ScratchCmd { key, cmd })
+}
+
+/// Parse the optional `keyaction` field into an [`Action::SendKeys`]. The value
+/// is one or more XKB keysym names separated by whitespace (e.g. `"q"`,
+/// `"ctrl" ...`); each is resolved with [`keysym_for_name`] and the whole batch
+/// is injected (tapped) into the focused client when the binding fires.
+fn parse_keyaction(tbl: &mlua::Table) -> Option<Action> {
+    let spec = lua_str(tbl, "keyaction")?;
+    let syms: Vec<u32> = spec
+        .split_whitespace()
+        .filter_map(|name| {
+            keysym_for_name(name).or_else(|| {
+                tracing::warn!("Unknown keysym '{name}' in keyaction '{spec}'");
+                None
+            })
+        })
+        .collect();
+    (!syms.is_empty()).then_some(Action::SendKeys(syms))
 }
 
 fn parse_action(tbl: &mlua::Table, action: &str) -> Option<Action> {
@@ -299,9 +317,12 @@ pub(super) fn lua_keys(t: &mlua::Table, default: Vec<KeyBind>) -> Vec<KeyBind> {
                 tracing::warn!("Unknown keysym '{key_str}' in keys config");
                 None
             })?;
-            let action_str = lua_str(&tbl, "action")?;
-            let action = parse_action(&tbl, &action_str)?;
-            Some(KeyBind { mods, keysym, action })
+            let action = parse_keyaction(&tbl).or_else(|| {
+                let action_str = lua_str(&tbl, "action")?;
+                parse_action(&tbl, &action_str)
+            })?;
+            let app_id = lua_str(&tbl, "app_id");
+            Some(KeyBind { mods, keysym, action, app_id })
         })
         .collect();
     if out.is_empty() { default } else { out }
@@ -318,9 +339,12 @@ pub(super) fn lua_buttons(t: &mlua::Table, default: Vec<ButtonBind>) -> Vec<Butt
                 tracing::warn!("Unknown button '{btn_str}' in buttons config");
                 None
             })?;
-            let action_str = lua_str(&tbl, "action")?;
-            let action = parse_action(&tbl, &action_str)?;
-            Some(ButtonBind { mods, button, action })
+            let action = parse_keyaction(&tbl).or_else(|| {
+                let action_str = lua_str(&tbl, "action")?;
+                parse_action(&tbl, &action_str)
+            })?;
+            let app_id = lua_str(&tbl, "app_id");
+            Some(ButtonBind { mods, button, action, app_id })
         })
         .collect();
     if out.is_empty() { default } else { out }

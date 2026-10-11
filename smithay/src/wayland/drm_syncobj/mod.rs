@@ -71,13 +71,13 @@ pub use sync_point::*;
 pub fn supports_syncobj_eventfd(device: &DrmDeviceFd) -> bool {
     // OpenBSD has no eventfd(2), so DRM syncobj eventfd support is never
     // available; report unsupported so the protocol global is not exposed.
-    #[cfg(target_os = "openbsd")]
+    #[cfg(any(target_os = "openbsd", target_os = "netbsd"))]
     {
         // Touch `device` through `AsFd` so the import stays used on OpenBSD too.
         let _ = device.as_fd();
         false
     }
-    #[cfg(not(target_os = "openbsd"))]
+    #[cfg(not(any(target_os = "openbsd", target_os = "netbsd")))]
     {
         // Pass device as placeholder for eventfd as well, since `drm_ffi` requires
         // a valid fd.

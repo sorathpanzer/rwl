@@ -20,6 +20,21 @@
 --   toggle_scratch / focus_or_toggle_scratch / focus_or_toggle_matching_scratch
 --                            scratch_key = "s",  cmd = {"foot", ...}
 --   chvt                     vt = 1..12
+--
+-- Per-app bindings:
+--   Any key OR button entry may add  app_id = "substring"  so it only fires
+--   while a window whose app id CONTAINS that substring is focused. The same
+--   mods+key (or mods+button) with no app_id acts as the fallback for every
+--   other app. Resolution is by priority (app-specific wins), not table order:
+--     { mods=M, key="q", action="kill_client", app_id="mpv" },  -- only in mpv
+--     { mods=M, key="q", action="zoom" },                       -- everything else
+--
+-- Key remapping (keyaction):
+--   Instead of `action`, use  keyaction = "<keysym>"  to INJECT that keystroke
+--   into the focused client (as if typed). One or more keysym names, whitespace
+--   separated; tapped press+release with modifiers off. Great with app_id:
+--     { mods="", button="275", keyaction="q", app_id="mpv" },  -- side btn = q in mpv
+--     { mods=M, key="c", keyaction="Escape" },                 -- Mod+c sends Escape
 
 local M = "M"
 local C = "C"

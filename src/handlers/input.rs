@@ -113,7 +113,8 @@ impl Rwl {
                             return FilterResult::Intercept(Action::OverviewNav(keysym));
                         }
                         let mod_bits = mods_to_bits(mods);
-                        return match_keybind(&cfg.keys, keysym, base_keysym, mod_bits, |_| true)
+                        let focused_appid = focused_app_id(state);
+                        return match_keybind(&cfg.keys, keysym, base_keysym, mod_bits, focused_appid.as_deref(), |_| true)
                             .map_or_else(
                                 || FilterResult::Intercept(Action::OverviewNav(keysym)),
                                 |bind| FilterResult::Intercept(bind.action.clone()),
@@ -136,12 +137,13 @@ impl Rwl {
 
                     // In passthrough mode only allow the passthrough toggle binding
                     if state.passthrough {
-                        return match_keybind(&cfg.keys, keysym, base_keysym, mod_bits,
+                        return match_keybind(&cfg.keys, keysym, base_keysym, mod_bits, None,
                             |bind| matches!(bind.action, Action::TogglePassthrough))
                             .map_or(FilterResult::Forward, |bind| FilterResult::Intercept(bind.action.clone()));
                     }
 
-                    match_keybind(&cfg.keys, keysym, base_keysym, mod_bits, |_| true)
+                    let focused_appid = focused_app_id(state);
+                    match_keybind(&cfg.keys, keysym, base_keysym, mod_bits, focused_appid.as_deref(), |_| true)
                         .map_or(FilterResult::Forward, |bind| FilterResult::Intercept(bind.action.clone()))
                 },
             )
@@ -543,12 +545,24 @@ impl Rwl {
                     .as_ref()
                     .map_or(0, |kb| mods_to_bits(&kb.modifier_state()));
 
+                let focused_appid = focused_app_id(self);
                 let matched = {
                     let cfg = crate::config::get();
-                    cfg.buttons
-                        .iter()
-                        .find(|b| b.button == button && clean_mask(mods) == clean_mask(b.mods))
-                        .map(|b| b.action.clone())
+                    // Two passes so an `app_id` button binding wins over the
+                    // generic one when the focused app matches (see match_keybind).
+                    let mask = clean_mask(mods);
+                    let find = |app_specific: bool| {
+                        cfg.buttons.iter().find(|b| {
+                            b.button == button
+                                && clean_mask(b.mods) == mask
+                                && match (&b.app_id, focused_appid.as_deref()) {
+                                    (Some(id), Some(f)) if app_specific => f.contains(id.as_str()),
+                                    (None, _) if !app_specific => true,
+                                    _ => false,
+                                }
+                        })
+                    };
+                    find(true).or_else(|| find(false)).map(|b| b.action.clone())
                 }; // guard dropped here
 
                 if let Some(action) = matched {
@@ -737,6 +751,15 @@ pub(crate) const fn clean_mask(mask: u32) -> u32 {
     mask
 }
 
+/// Cached app id of the currently focused window, if any, for per-app keybind
+/// resolution. Reads the same `last_appid` the `Rule` system and hooks use.
+fn focused_app_id(state: &Rwl) -> Option<String> {
+    state
+        .focused_window()
+        .and_then(|w| crate::window::with_state(w, |s| s.last_appid.clone()))
+        .flatten()
+}
+
 /// Find the keybind matching a pressed key, honouring shifted keys in a
 /// layout-agnostic way.
 ///
@@ -745,18 +768,37 @@ pub(crate) const fn clean_mask(mask: u32) -> u32 {
 /// the `base` (unshifted, level-0) keysym is tried, so a binding written as
 /// `{ mods="MS", key="1" }` fires no matter which symbol the active layout maps
 /// onto Shift+1.
-fn match_keybind(
-    keys: &[crate::config::KeyBind],
+fn match_keybind<'a>(
+    keys: &'a [crate::config::KeyBind],
     modified: u32,
     base: u32,
     mod_bits: u32,
+    focused_appid: Option<&str>,
     extra: impl Fn(&crate::config::KeyBind) -> bool,
-) -> Option<&crate::config::KeyBind> {
+) -> Option<&'a crate::config::KeyBind> {
     let mask = clean_mask(mod_bits);
-    let matches = |b: &&crate::config::KeyBind, sym: u32| {
-        b.keysym == sym && clean_mask(b.mods) == mask && extra(b)
-    };
-    keys.iter()
-        .find(|b| matches(b, modified))
-        .or_else(|| (base != modified).then(|| keys.iter().find(|b| matches(b, base))).flatten())
+    // Two passes, so an `app_id` binding always wins over the generic one when
+    // the focused app matches: first consider only app-specific bindings whose
+    // `app_id` is a substring of the focused window's app id (mirroring the
+    // `Rule` convention), then fall back to app-less bindings.
+    for app_specific in [true, false] {
+        let matches = |b: &&crate::config::KeyBind, sym: u32| {
+            b.keysym == sym
+                && clean_mask(b.mods) == mask
+                && extra(b)
+                && match (&b.app_id, focused_appid) {
+                    (Some(id), Some(f)) if app_specific => f.contains(id.as_str()),
+                    (None, _) if !app_specific => true,
+                    _ => false,
+                }
+        };
+        if let Some(found) = keys
+            .iter()
+            .find(|b| matches(b, modified))
+            .or_else(|| (base != modified).then(|| keys.iter().find(|b| matches(b, base))).flatten())
+        {
+            return Some(found);
+        }
+    }
+    None
 }

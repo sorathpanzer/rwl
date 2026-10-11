@@ -116,6 +116,28 @@ Run from a text VT (stop `xenodm` first), with seatd running and your user in th
 rwl -s ~/.config/rwl/startup.sh
 ```
 
+## Touchpad / mouse configuration
+
+On OpenBSD the touchpad is driven by `wsmouse`/`wstpad` and libinput-openbsd
+presents it as a plain pointer (`wsmouse0`, `tap_finger_count = 0`). Consequences
+for rwl's `touchpad = { … }` / `mouse = { … }` config:
+
+- The device is seen as a **mouse**, not a touchpad — so put settings that should
+  apply to it (notably `accel_speed`, `accel_profile`) under **`mouse = { … }`**.
+  Use a non-zero `accel_speed` (`0.0` is the neutral default → no visible change).
+- Touchpad-only options — `natural_scrolling`, `tap_to_click`, `tap_and_drag`,
+  `drag_lock`, `disable_while_typing`, `click_method`, `scroll_method`,
+  `tap_button_map` — are **not exposed by libinput-openbsd**, so no compositor
+  config can set them. Configure them at the driver level in `/etc/wsconsctl.conf`
+  (applied at boot as root), e.g.:
+  ```
+  mouse.reverse_scrolling=1     # natural scrolling
+  mouse.tp.tapping=1            # tap to click
+  mouse.tp.scaling=1.25         # pointer speed
+  ```
+  Live changes: `doas wsconsctl mouse.reverse_scrolling=1` (rwl can't set these —
+  `wsconsctl` writes require root). See `wsmouse(4)` and `wsconsctl(8)`.
+
 ## Screen lock (`rwl msg lock`)
 
 The native lock authenticates with `bsd_auth` (`auth_userokay`), which execs
